@@ -613,6 +613,125 @@ if page == "Dashboard":
                     )
 
             # -----------------------------------------
+            # REGRESSION EVALUATION
+            # -----------------------------------------
+
+            else:
+                st.subheader(
+                    "Regression Evaluation | Regression ප්‍රතිඵල විශ්ලේෂණය"
+                )
+
+                actual_values = np.asarray(y_test, dtype=float)
+                predicted_values = np.asarray(y_pred, dtype=float)
+                residuals = actual_values - predicted_values
+
+                mae_value = mean_absolute_error(
+                    actual_values, predicted_values
+                )
+                mse_value = mean_squared_error(
+                    actual_values, predicted_values
+                )
+                rmse_value = float(np.sqrt(mse_value))
+                r2_value = r2_score(
+                    actual_values, predicted_values
+                )
+
+                metric1, metric2, metric3, metric4 = st.columns(4)
+                metric1.metric("MAE", f"{mae_value:.4f}")
+                metric2.metric("MSE", f"{mse_value:.4f}")
+                metric3.metric("RMSE", f"{rmse_value:.4f}")
+                metric4.metric("R² Score", f"{r2_value:.4f}")
+
+                st.caption(
+                    "MAE, MSE and RMSE measure prediction errors; lower values "
+                    "are generally better. R² measures explained variation; "
+                    "higher is generally better. "
+                    "/ Error metrics අඩු වීම සාමාන්‍යයෙන් හොඳයි. R² වැඩි වීම සාමාන්‍යයෙන් හොඳයි."
+                )
+
+                st.markdown("#### Actual vs Predicted | සැබෑ සහ පුරෝකථන අගයන්")
+                regression_plot_df = pd.DataFrame({
+                    "Actual": actual_values,
+                    "Predicted": predicted_values
+                })
+
+                actual_pred_fig = px.scatter(
+                    regression_plot_df,
+                    x="Actual",
+                    y="Predicted",
+                    title="Actual vs Predicted Values",
+                    opacity=0.65
+                )
+
+                min_value = float(
+                    min(actual_values.min(), predicted_values.min())
+                )
+                max_value = float(
+                    max(actual_values.max(), predicted_values.max())
+                )
+                actual_pred_fig.add_shape(
+                    type="line",
+                    x0=min_value,
+                    y0=min_value,
+                    x1=max_value,
+                    y1=max_value,
+                    line=dict(dash="dash", color="red")
+                )
+                st.plotly_chart(
+                    actual_pred_fig,
+                    use_container_width=True
+                )
+                st.caption(
+                    "Points closer to the dashed diagonal line indicate more "
+                    "accurate predictions. / තිත් dashed line එකට ළඟ නම් predictions වඩා නිවැරදියි."
+                )
+
+                st.markdown("#### Residual Plot | Prediction Error")
+                residual_df = pd.DataFrame({
+                    "Predicted": predicted_values,
+                    "Residual": residuals
+                })
+                residual_fig = px.scatter(
+                    residual_df,
+                    x="Predicted",
+                    y="Residual",
+                    title="Residuals vs Predicted Values",
+                    opacity=0.65
+                )
+                residual_fig.add_hline(
+                    y=0,
+                    line_dash="dash",
+                    line_color="red"
+                )
+                st.plotly_chart(
+                    residual_fig,
+                    use_container_width=True
+                )
+                st.caption(
+                    "Residual = Actual − Predicted. A random spread around zero "
+                    "is often desirable. / Residual කියන්නේ Actual − Predicted."
+                )
+
+                st.markdown("#### Residual Distribution | Error ව්‍යාප්තිය")
+                residual_hist = px.histogram(
+                    residual_df,
+                    x="Residual",
+                    nbins=30,
+                    title="Distribution of Prediction Errors"
+                )
+                st.plotly_chart(
+                    residual_hist,
+                    use_container_width=True
+                )
+
+                # Show a small preview to avoid excessive page/memory usage.
+                st.markdown("#### Prediction Sample | Prediction උදාහරණ")
+                st.dataframe(
+                    regression_plot_df.head(100),
+                    use_container_width=True
+                )
+
+            # -----------------------------------------
             # FEATURE IMPORTANCE
             # -----------------------------------------
 
