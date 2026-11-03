@@ -596,9 +596,13 @@ elif page == "AI Model Training":
                             mime="application/octet-stream"
                         )
 
-                    except Exception as e:
+                                       except Exception as e:
 
                         st.error(f"Training error: {e}")
+
+        except Exception as e:
+
+            st.error(f"Dataset loading error: {e}")
 
 
 # =====================================================
