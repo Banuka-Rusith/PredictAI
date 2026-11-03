@@ -1131,6 +1131,91 @@ elif page == "AI Model Training":
                 5
             )
 
+            # Smart target validation and recommendations
+            id_name_tokens = ("id", "udi", "uuid", "serial", "code")
+            id_like_columns = []
+
+            for column in df.columns:
+                column_name = str(column).strip().lower().replace(" ", "_")
+                unique_ratio = (
+                    df[column].nunique(dropna=True) / max(len(df), 1)
+                )
+                name_looks_like_id = (
+                    column_name in {"id", "udi", "product_id", "machine_id"}
+                    or column_name.endswith("_id")
+                    or any(token in column_name for token in ("uuid", "serial_number"))
+                )
+                if name_looks_like_id or (
+                    unique_ratio >= 0.98 and df[column].nunique(dropna=True) > 20
+                ):
+                    id_like_columns.append(column)
+
+            target_unique_count = df[target].nunique(dropna=True)
+            target_is_numeric = pd.api.types.is_numeric_dtype(df[target])
+            target_name = str(target).strip().lower().replace(" ", "_")
+            target_looks_like_id = (
+                target in id_like_columns
+                or target_name in {"id", "udi", "product_id", "machine_id"}
+                or target_name.endswith("_id")
+            )
+
+            target_validation_error = None
+
+            st.markdown("### Smart Target Assistant | Target එක තෝරාගැනීමට සහාය")
+
+            if id_like_columns:
+                st.info(
+                    "Possible ID columns detected: "
+                    + ", ".join(map(str, id_like_columns))
+                    + ". These usually identify records and are not suitable prediction targets. "
+                    + "/ මේ columns බොහෝවිට records හඳුනාගැනීමට භාවිතා කරන නිසා target ලෙස තෝරාගැනීමෙන් වළකින්න."
+                )
+
+            if target_looks_like_id:
+                target_validation_error = (
+                    f"'{target}' looks like an identifier column. "
+                    "Choose an outcome column such as Machine failure or Fever."
+                )
+                st.error(
+                    "⚠️ " + target_validation_error
+                    + " / ID column එකක් වෙනුවට predict කළ යුතු result column එක තෝරන්න."
+                )
+            elif problem_type == "Classification":
+                if target_unique_count < 2:
+                    target_validation_error = (
+                        "Classification requires at least two different target classes."
+                    )
+                    st.error(target_validation_error)
+                elif target_unique_count > 50:
+                    target_validation_error = (
+                        f"'{target}' has {target_unique_count} unique values. "
+                        "It looks like a continuous or high-cardinality target. "
+                        "Try Regression if this is a numeric measurement, or select a class label."
+                    )
+                    st.error(
+                        target_validation_error
+                        + " / මෙහි unique values ගොඩක් තිබෙනවා. Numeric measurement එකක් නම් Regression තෝරන්න."
+                    )
+                else:
+                    st.success(
+                        f"'{target}' has {target_unique_count} distinct classes and can be used for classification. "
+                        "/ මෙම target එක Classification සඳහා භාවිතා කළ හැක."
+                    )
+            elif problem_type == "Regression":
+                if not target_is_numeric:
+                    target_validation_error = (
+                        f"'{target}' is not numeric. Regression requires a numerical target."
+                    )
+                    st.error(
+                        target_validation_error
+                        + " / Regression සඳහා සංඛ්‍යාත්මක target column එකක් තෝරන්න."
+                    )
+                else:
+                    st.success(
+                        f"'{target}' is numerical and can be used for regression. "
+                        "/ මෙම target එක Regression සඳහා සුදුසුයි."
+                    )
+
             available_models = (
                 CLASSIFICATION_MODELS
                 if problem_type == "Classification"
@@ -1172,6 +1257,13 @@ elif page == "AI Model Training":
 
                     st.error(
                         "Please select at least one algorithm."
+                    )
+
+                elif target_validation_error:
+
+                    st.error(
+                        "Please correct the target column or problem type before training. "
+                        "/ Training කිරීමට පෙර target column එක හෝ problem type එක නිවැරදි කරන්න."
                     )
 
                 else:
