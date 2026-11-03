@@ -406,6 +406,7 @@ page = st.sidebar.radio(
     "Navigation",
     [
         "Dashboard",
+        "Dataset Explorer",
         "AI Model Training",
         "Predictions",
         "Reports",
@@ -672,6 +673,206 @@ if page == "Dashboard":
                 "Train a model to view advanced analytics."
             )
 
+
+
+# =====================================================
+# DATASET EXPLORER
+# =====================================================
+
+elif page == "Dataset Explorer":
+
+    st.subheader("🔍 Dataset Explorer | දත්ත කට්ටලය පරීක්ෂා කිරීම")
+
+    st.write(
+        "Upload a CSV or Excel dataset to automatically examine its "
+        "structure, quality and statistical properties."
+    )
+    st.caption(
+        "CSV හෝ Excel dataset එක upload කළාම එහි rows, columns, "
+        "missing values, duplicates සහ statistics ස්වයංක්‍රීයව පෙන්වයි."
+    )
+
+    explorer_file = st.file_uploader(
+        "Upload Dataset / Dataset එක upload කරන්න",
+        type=["csv", "xlsx"],
+        key="explorer_upload"
+    )
+
+    if explorer_file is not None:
+
+        try:
+            explorer_df = read_dataset(explorer_file)
+
+            if explorer_df.empty:
+                st.warning("The uploaded dataset is empty. / Upload කළ dataset එක හිස්.")
+            else:
+                row_count, column_count = explorer_df.shape
+                missing_total = int(explorer_df.isna().sum().sum())
+                duplicate_total = int(explorer_df.duplicated().sum())
+
+                st.success("Dataset loaded successfully! / Dataset එක සාර්ථකව load වුණා!")
+
+                st.markdown("### 1. Dataset Overview | Dataset එකේ මූලික විස්තර")
+
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Observations / Rows", f"{row_count:,}")
+                c2.metric("Variables / Columns", f"{column_count:,}")
+                c3.metric("Missing Values", f"{missing_total:,}")
+                c4.metric("Duplicate Rows", f"{duplicate_total:,}")
+
+                st.markdown("### 2. Dataset Preview | මුල් දත්ත")
+                st.dataframe(explorer_df.head(10), use_container_width=True)
+
+                st.markdown("### 3. Column Information | Column විස්තර")
+
+                column_info = pd.DataFrame({
+                    "Column": explorer_df.columns.astype(str),
+                    "Data Type": [str(dtype) for dtype in explorer_df.dtypes],
+                    "Non-Null Values": explorer_df.notna().sum().values,
+                    "Missing Values": explorer_df.isna().sum().values,
+                    "Missing (%)": (
+                        explorer_df.isna().mean().values * 100
+                    ).round(2),
+                    "Unique Values": explorer_df.nunique(dropna=True).values
+                })
+
+                st.dataframe(
+                    column_info.sort_values("Missing (%)", ascending=False),
+                    use_container_width=True
+                )
+
+                st.markdown("### 4. Data Quality | දත්තවල ගුණාත්මකභාවය")
+
+                q1, q2, q3 = st.columns(3)
+                q1.metric(
+                    "Complete Cells",
+                    f"{(explorer_df.size - missing_total):,}"
+                )
+                q2.metric(
+                    "Missing Data Rate",
+                    f"{(missing_total / explorer_df.size * 100):.2f}%"
+                    if explorer_df.size else "0%"
+                )
+                q3.metric(
+                    "Duplicate Row Rate",
+                    f"{(duplicate_total / row_count * 100):.2f}%"
+                    if row_count else "0%"
+                )
+
+                if missing_total > 0:
+                    st.warning(
+                        "Missing values were detected. These may need "
+                        "imputation or removal before model training. "
+                        "/ Missing values තිබෙන නිසා training කිරීමට පෙර "
+                        "ඒවා handle කළ යුතු විය හැක."
+                    )
+                else:
+                    st.success(
+                        "No missing values detected. / Missing values හමු නොවීය."
+                    )
+
+                if duplicate_total > 0:
+                    st.info(
+                        f"{duplicate_total} duplicate rows detected. "
+                        "Review them before deciding whether to remove them. "
+                        "/ Duplicate rows ඉවත් කළ යුතුද කියා පරීක්ෂා කරන්න."
+                    )
+
+                st.markdown("### 5. Statistical Summary | සංඛ්‍යානමය සාරාංශය")
+
+                numeric_df = explorer_df.select_dtypes(include=np.number)
+                categorical_df = explorer_df.select_dtypes(exclude=np.number)
+
+                if not numeric_df.empty:
+                    st.write(
+                        "**Numerical variables – Mean, Standard Deviation, "
+                        "Minimum, Maximum, etc. / සංඛ්‍යාත්මක variables වල විස්තර**"
+                    )
+                    st.dataframe(
+                        numeric_df.describe().T,
+                        use_container_width=True
+                    )
+                else:
+                    st.info("No numerical columns found. / සංඛ්‍යාත්මක columns නොමැත.")
+
+                if not categorical_df.empty:
+                    st.write(
+                        "**Categorical variables – Count, Unique values and "
+                        "Most frequent value / වර්ගීකරණ දත්තවල සාරාංශය**"
+                    )
+                    categorical_summary = pd.DataFrame({
+                        "Column": categorical_df.columns,
+                        "Non-Null Count": categorical_df.notna().sum().values,
+                        "Unique Values": categorical_df.nunique(dropna=True).values,
+                        "Most Frequent Value": [
+                            (
+                                categorical_df[col].mode(dropna=True).iloc[0]
+                                if not categorical_df[col].mode(dropna=True).empty
+                                else "N/A"
+                            )
+                            for col in categorical_df.columns
+                        ]
+                    })
+                    st.dataframe(
+                        categorical_summary,
+                        use_container_width=True
+                    )
+
+                st.markdown("### 6. Target Distribution | Target එකේ දත්ත ව්‍යාප්තිය")
+
+                target_choice = st.selectbox(
+                    "Select a target/output column (optional) / Target column එක තෝරන්න",
+                    ["-- Select target column --"] + explorer_df.columns.tolist(),
+                    key="explorer_target"
+                )
+
+                if target_choice != "-- Select target column --":
+                    target_series = explorer_df[target_choice].dropna()
+
+                    if target_series.empty:
+                        st.info("The selected target column contains no usable values.")
+                    elif (
+                        pd.api.types.is_numeric_dtype(target_series)
+                        and target_series.nunique() > 20
+                    ):
+                        target_fig = px.histogram(
+                            x=target_series,
+                            nbins=30,
+                            title=f"Distribution of {target_choice}",
+                            labels={"x": target_choice, "y": "Count"}
+                        )
+                        st.plotly_chart(target_fig, use_container_width=True)
+                    else:
+                        distribution = (
+                            target_series.astype(str)
+                            .value_counts()
+                            .head(30)
+                            .rename_axis("Target Value")
+                            .reset_index(name="Count")
+                        )
+                        target_fig = px.bar(
+                            distribution,
+                            x="Target Value",
+                            y="Count",
+                            title=f"Distribution of {target_choice}"
+                        )
+                        st.plotly_chart(target_fig, use_container_width=True)
+
+                    st.caption(
+                        "This chart shows how values are distributed in the "
+                        "selected target column. / තෝරාගත් target column එකේ "
+                        "values පැතිරී ඇති ආකාරය මෙම chart එකෙන් පෙන්වයි."
+                    )
+
+                st.download_button(
+                    "⬇️ Download Column Analysis (CSV)",
+                    data=column_info.to_csv(index=False).encode("utf-8"),
+                    file_name="PredictAI_Dataset_Analysis.csv",
+                    mime="text/csv"
+                )
+
+        except Exception as e:
+            st.error(f"Dataset Analysis Error: {e}")
 
 
 # =====================================================
