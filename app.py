@@ -1027,6 +1027,49 @@ elif page == "AI Model Training":
         "Upload a dataset and select the target column "
         "to train machine learning models."
     )
+    st.caption(
+        "Dataset එක upload කරලා පහත modes දෙකෙන් එකක් තෝරන්න. "
+        "/ Upload your dataset and choose one of the two learning modes."
+    )
+
+    workflow_mode = st.radio(
+        "Choose Your Experience / ඔබට අවශ්‍ය ක්‍රමය තෝරන්න",
+        ["Guided Mode", "Automatic Mode"],
+        horizontal=True,
+        key="training_workflow_mode",
+        help=(
+            "Guided Mode explains the steps. Automatic Mode uses all available "
+            "algorithms with the selected target and settings."
+        )
+    )
+
+    if workflow_mode == "Guided Mode":
+        with st.container(border=True):
+            st.markdown("### 📘 Guided Mode | පියවරෙන් පියවර")
+            st.markdown(
+                "**1. Upload Dataset** – CSV / Excel file එක upload කරන්න.  \n"
+                "**2. Select Target** – Predict කරන්න ඕන output column එක තෝරන්න.  \n"
+                "**3. Select Problem Type** – Classification හෝ Regression තෝරන්න.  \n"
+                "**4. Choose Algorithms** – Train කරන්න ඕන algorithms තෝරන්න.  \n"
+                "**5. Train & Review** – Results සහ model comparison බලන්න."
+            )
+            st.info(
+                "Guided Mode: You can choose which algorithms to train. "
+                "/ ඔබට අවශ්‍ය algorithms ඔබම තෝරාගත හැක."
+            )
+    else:
+        with st.container(border=True):
+            st.markdown("### ⚡ Automatic Mode | ස්වයංක්‍රීය ක්‍රමය")
+            st.markdown(
+                "Select the target and problem type. PredictAI will prepare the "
+                "data, apply preprocessing and train all available algorithms. "
+                "/ Target එක සහ problem type එක තෝරන්න. ඉතිරි preprocessing සහ "
+                "algorithms සියල්ල PredictAI මගින් සිදු කරයි."
+            )
+            st.success(
+                "All available algorithms will be selected automatically. "
+                "/ සියලුම algorithms ස්වයංක්‍රීයව තෝරාගනු ලැබේ."
+            )
 
     uploaded_file = st.file_uploader(
         "Upload CSV or Excel Dataset",
@@ -1094,16 +1137,31 @@ elif page == "AI Model Training":
                 else REGRESSION_MODELS
             )
 
-            selected_models = st.multiselect(
-                "Select AI Algorithms",
-                list(available_models.keys()),
-                default=list(available_models.keys())
-            )
+            if workflow_mode == "Guided Mode":
+                selected_models = st.multiselect(
+                    "Select AI Algorithms / Algorithms තෝරන්න",
+                    list(available_models.keys()),
+                    default=list(available_models.keys())
+                )
+            else:
+                selected_models = st.multiselect(
+                    "AI Algorithms / ස්වයංක්‍රීයව තෝරාගත් Algorithms",
+                    list(available_models.keys()),
+                    default=list(available_models.keys()),
+                    disabled=True,
+                    key="automatic_selected_models"
+                )
 
             st.divider()
 
+            train_button_label = (
+                "🚀 Train Selected Models / තෝරාගත් Models Train කරන්න"
+                if workflow_mode == "Guided Mode"
+                else "⚡ Run Automatic Training / ස්වයංක්‍රීයව Train කරන්න"
+            )
+
             if st.button(
-                "🚀 Train AI Models",
+                train_button_label,
                 type="primary",
                 use_container_width=True
             ):
