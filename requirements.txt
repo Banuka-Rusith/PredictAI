@@ -6,3 +6,4 @@ joblib
 plotly
 openpyxl
 reportlab
+matplotlib
