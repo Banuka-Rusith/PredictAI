@@ -1144,12 +1144,14 @@ elif page == "AI Model Training":
                     default=list(available_models.keys())
                 )
             else:
-                selected_models = st.multiselect(
-                    "AI Algorithms / ස්වයංක්‍රීයව තෝරාගත් Algorithms",
-                    list(available_models.keys()),
-                    default=list(available_models.keys()),
-                    disabled=True,
-                    key="automatic_selected_models"
+                # Automatically select every available algorithm.
+                # No multiselect widget is needed in Automatic Mode.
+                selected_models = list(available_models.keys())
+
+                st.info(
+                    "Automatically selected algorithms: "
+                    + ", ".join(selected_models)
+                    + " / සියලුම algorithms ස්වයංක්‍රීයව තෝරාගෙන ඇත."
                 )
 
             st.divider()
