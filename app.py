@@ -47,6 +47,15 @@ from reportlab.platypus import (
     Table,
     TableStyle
 )
+from sklearn.metrics import (
+    confusion_matrix,
+    ConfusionMatrixDisplay,
+    roc_curve,
+    roc_auc_score
+)
+
+import matplotlib.pyplot as plt
+import json
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 
