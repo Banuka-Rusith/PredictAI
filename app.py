@@ -57,6 +57,7 @@ from sklearn.metrics import (
 
 import matplotlib.pyplot as plt
 import json
+import time
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 
@@ -411,6 +412,7 @@ page = st.sidebar.radio(
         "Dashboard",
         "Dataset Explorer",
         "AI Model Training",
+        "Model Comparison",
         "Predictions",
         "Reports",
         "About"
@@ -800,6 +802,137 @@ if page == "Dashboard":
 # =====================================================
 # DATASET EXPLORER
 # =====================================================
+
+elif page == "Model Comparison":
+
+    st.subheader("Automated Model Comparison Dashboard")
+    st.caption(
+        "Compare trained models using performance metrics and training time. "
+        "/ Models වල performance සහ training time එකම තැනක compare කරන්න."
+    )
+
+    comparison = st.session_state.comparison
+
+    if comparison is None or comparison.empty:
+        st.info(
+            "Please train models first in AI Model Training. "
+            "/ මුලින් AI Model Training page එකෙන් models train කරන්න."
+        )
+    else:
+        problem_type = st.session_state.problem_type
+        selected_model_name = st.session_state.model_name
+
+        st.markdown("### Model Performance Table")
+        st.dataframe(
+            comparison,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        if problem_type == "Classification":
+            main_metric = "F1 Score"
+            metric_description = (
+                "Higher is better. F1-score balances precision and recall."
+            )
+            chart_metrics = [
+                metric for metric in
+                ["Accuracy", "Precision", "Recall", "F1 Score"]
+                if metric in comparison.columns
+            ]
+        else:
+            main_metric = "R2 Score"
+            metric_description = (
+                "Higher is generally better. MAE and RMSE should be lower."
+            )
+            chart_metrics = [
+                metric for metric in ["R2 Score"]
+                if metric in comparison.columns
+            ]
+
+        best_row = comparison.sort_values(
+            main_metric,
+            ascending=False
+        ).iloc[0]
+
+        st.success(
+            f"Top model in the comparison: {best_row['Model']} "
+            f"({main_metric}: {best_row[main_metric]:.4f})"
+        )
+
+        st.info(
+            f"Currently selected prediction model: {selected_model_name}. "
+            "If automatic hyperparameter tuning improved the selected model, "
+            "the comparison table still represents the original model runs. "
+            "The tuning result is shown separately on the AI Model Training page."
+        )
+
+        st.markdown("### Performance Comparison")
+        if problem_type == "Classification":
+            metric_to_plot = st.selectbox(
+                "Select performance metric",
+                chart_metrics,
+                key="comparison_classification_metric"
+            )
+        else:
+            metric_to_plot = main_metric
+
+        fig_comparison = px.bar(
+            comparison.sort_values(metric_to_plot, ascending=False),
+            x="Model",
+            y=metric_to_plot,
+            title=f"Model Comparison – {metric_to_plot}",
+            text_auto=".4f"
+        )
+        st.plotly_chart(
+            fig_comparison,
+            use_container_width=True
+        )
+
+        if problem_type == "Regression":
+            st.markdown("### Regression Error Comparison")
+            error_metrics = [
+                metric for metric in ["MAE", "RMSE"]
+                if metric in comparison.columns
+            ]
+            if error_metrics:
+                error_data = comparison.melt(
+                    id_vars=["Model"],
+                    value_vars=error_metrics,
+                    var_name="Error Metric",
+                    value_name="Error"
+                )
+                fig_errors = px.bar(
+                    error_data,
+                    x="Model",
+                    y="Error",
+                    color="Error Metric",
+                    barmode="group",
+                    title="Regression Errors (lower is better)"
+                )
+                st.plotly_chart(
+                    fig_errors,
+                    use_container_width=True
+                )
+
+        if "Training Time (s)" in comparison.columns:
+            st.markdown("### Training Time Comparison")
+            fig_time = px.bar(
+                comparison.sort_values("Training Time (s)"),
+                x="Model",
+                y="Training Time (s)",
+                title="Training Time (seconds) – lower is faster",
+                text_auto=".3f"
+            )
+            st.plotly_chart(
+                fig_time,
+                use_container_width=True
+            )
+
+        st.caption(
+            metric_description
+            + " Training time measures model fitting only; it excludes "
+            "data upload, preprocessing outside the pipeline, and prediction."
+        )
 
 elif page == "Dataset Explorer":
 
@@ -1540,10 +1673,14 @@ elif page == "AI Model Training":
                                 )
                             ])
 
+                            training_start_time = time.perf_counter()
+
                             pipeline.fit(
                                 X_train,
                                 y_train
                             )
+
+                            training_seconds = time.perf_counter() - training_start_time
 
                             predictions = pipeline.predict(
                                 X_test
@@ -1582,7 +1719,8 @@ elif page == "AI Model Training":
                                     "Accuracy": round(accuracy, 4),
                                     "Precision": round(precision, 4),
                                     "Recall": round(recall, 4),
-                                    "F1 Score": round(f1, 4)
+                                    "F1 Score": round(f1, 4),
+                                    "Training Time (s)": round(training_seconds, 3)
                                 }
 
                             else:
@@ -1608,7 +1746,8 @@ elif page == "AI Model Training":
                                     "Model": name,
                                     "MAE": round(mae, 4),
                                     "RMSE": round(rmse, 4),
-                                    "R2 Score": round(r2, 4)
+                                    "R2 Score": round(r2, 4),
+                                    "Training Time (s)": round(training_seconds, 3)
                                 }
 
                             results.append(result)
