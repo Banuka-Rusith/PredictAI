@@ -949,34 +949,28 @@ elif page == "AI Model Training":
                         best_name = comparison.iloc[0]["Model"]
 
                         best_model = trained_models[best_name]
-                        # Save evaluation data for advanced analytics
 
+                        # Save evaluation data for advanced analytics
                         best_predictions = best_model.predict(X_test)
 
                         st.session_state.y_test = y_test.copy()
-
                         st.session_state.y_predictions = best_predictions
-
                         st.session_state.X_test = X_test.copy()
 
                         if (
-                                problem_type == "Classification"
-                                and hasattr(best_model, "predict_proba")
-                            ):
-                                 st.session_state.y_probabilities = (
-                                 best_model.predict_proba(X_test)
-                                    )
-                            else:
-                        st.session_state.y_probabilities = None
+                            problem_type == "Classification"
+                            and hasattr(best_model, "predict_proba")
+                        ):
+                            st.session_state.y_probabilities = (
+                                best_model.predict_proba(X_test)
+                            )
+                        else:
+                            st.session_state.y_probabilities = None
 
                         st.session_state.trained_model = best_model
-
                         st.session_state.model_name = best_name
-
                         st.session_state.problem_type = problem_type
-
                         st.session_state.target_column = target
-
                         st.session_state.feature_columns = X.columns.tolist()
 
                         st.session_state.model_metrics = (
