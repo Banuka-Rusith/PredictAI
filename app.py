@@ -102,6 +102,10 @@ defaults = {
     "comparison": None,
     "training_data": None,
     "prediction_results": None
+    "y_test": None,
+    "y_predictions": None,
+    "y_probabilities": None,
+    "X_test": None,
 }
 
 for key, value in defaults.items():
