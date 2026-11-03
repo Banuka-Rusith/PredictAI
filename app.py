@@ -72,6 +72,11 @@ st.set_page_config(
     layout="wide"
 )
 
+st.caption(
+    "Cloud-optimized mode: dataset uploads are cached, model training uses limited CPU threads, "
+    "and feature-importance calculations use a smaller sample."
+)
+
 st.markdown("""
 <style>
 .main {
@@ -114,12 +119,25 @@ for key, value in defaults.items():
 # DATASET FUNCTIONS
 # =====================================================
 
+@st.cache_data(show_spinner=False, max_entries=5)
+def _read_dataset_cached(file_bytes, file_name):
+
+    from io import BytesIO
+
+    file_buffer = BytesIO(file_bytes)
+
+    if file_name.lower().endswith(".csv"):
+        return pd.read_csv(file_buffer)
+
+    return pd.read_excel(file_buffer)
+
+
 def read_dataset(file):
 
-    if file.name.lower().endswith(".csv"):
-        return pd.read_csv(file)
-
-    return pd.read_excel(file)
+    return _read_dataset_cached(
+        file.getvalue(),
+        file.name
+    )
 
 
 def prepare_dataset(df, target):
@@ -277,14 +295,14 @@ CLASSIFICATION_MODELS = {
         n_estimators=100,
         class_weight="balanced",
         random_state=42,
-        n_jobs=-1
+        n_jobs=1
     ),
 
     "Extra Trees": ExtraTreesClassifier(
         n_estimators=100,
         class_weight="balanced",
         random_state=42,
-        n_jobs=-1
+        n_jobs=1
     )
 }
 
@@ -301,13 +319,13 @@ REGRESSION_MODELS = {
     "Random Forest Regressor": RandomForestRegressor(
         n_estimators=100,
         random_state=42,
-        n_jobs=-1
+        n_jobs=1
     ),
 
     "Extra Trees Regressor": ExtraTreesRegressor(
         n_estimators=100,
         random_state=42,
-        n_jobs=-1
+        n_jobs=1
     )
 }
 
@@ -750,14 +768,26 @@ if page == "Dashboard":
                     else:
                         scoring_method = "r2"
 
+                    # Limit feature-importance workload to reduce Cloud RAM/CPU usage.
+                    importance_sample_size = min(len(X_test), 300)
+                    if len(X_test) > importance_sample_size:
+                        importance_X = X_test.sample(
+                            n=importance_sample_size,
+                            random_state=42
+                        )
+                        importance_y = y_test.loc[importance_X.index]
+                    else:
+                        importance_X = X_test
+                        importance_y = y_test
+
                     importance_result = permutation_importance(
                         model,
-                        X_test,
-                        y_test,
-                        n_repeats=5,
+                        importance_X,
+                        importance_y,
+                        n_repeats=3,
                         random_state=42,
                         scoring=scoring_method,
-                        n_jobs=-1
+                        n_jobs=1
                     )
 
                     importance_df = pd.DataFrame({
@@ -2069,7 +2099,7 @@ elif page == "AI Model Training":
                                     search = RandomizedSearchCV(
                                         estimator=baseline_model,
                                         param_distributions=tuning_spaces[best_name],
-                                        n_iter=5,
+                                        n_iter=3,
                                         scoring=tuning_scoring,
                                         cv=3,
                                         random_state=42,
