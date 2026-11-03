@@ -6,7 +6,7 @@ import joblib
 import plotly.express as px
 
 from io import BytesIO
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, RandomizedSearchCV
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, RobustScaler
@@ -1418,6 +1418,23 @@ elif page == "AI Model Training":
                     + " / සියලුම algorithms ස්වයංක්‍රීයව තෝරාගෙන ඇත."
                 )
 
+            improve_model = st.checkbox(
+                "Improve the best model automatically / Best model එක automatically improve කරන්න",
+                value=False,
+                help=(
+                    "After comparing the selected algorithms, PredictAI will tune "
+                    "the best supported model using training data only and compare "
+                    "its performance on the held-out test set."
+                )
+            )
+
+            if improve_model:
+                st.info(
+                    "PredictAI will try a small hyperparameter search for the best "
+                    "supported model. Linear Regression has no tuning search in this version. "
+                    "/ හොඳම model එකට සුදුසු parameters සොයනු ලැබේ."
+                )
+
             st.divider()
 
             train_button_label = (
@@ -1621,6 +1638,143 @@ elif page == "AI Model Training":
                         best_name = comparison.iloc[0]["Model"]
 
                         best_model = trained_models[best_name]
+                        baseline_model = best_model
+                        baseline_predictions = baseline_model.predict(X_test)
+
+                        if problem_type == "Classification":
+                            baseline_score = f1_score(
+                                y_test,
+                                baseline_predictions,
+                                average="weighted",
+                                zero_division=0
+                            )
+                            tuning_scoring = "f1_weighted"
+                        else:
+                            baseline_score = r2_score(
+                                y_test,
+                                baseline_predictions
+                            )
+                            tuning_scoring = "r2"
+
+                        tuning_summary = None
+
+                        if improve_model:
+                            tuning_spaces = {
+                                "Logistic Regression": {
+                                    "model__C": [0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
+                                },
+                                "Decision Tree": {
+                                    "model__max_depth": [None, 5, 10, 15, 20],
+                                    "model__min_samples_split": [2, 5, 10],
+                                    "model__min_samples_leaf": [1, 2, 4]
+                                },
+                                "Random Forest": {
+                                    "model__n_estimators": [50, 100, 150],
+                                    "model__max_depth": [None, 10, 15, 20],
+                                    "model__min_samples_split": [2, 5],
+                                    "model__min_samples_leaf": [1, 2]
+                                },
+                                "Extra Trees": {
+                                    "model__n_estimators": [50, 100, 150],
+                                    "model__max_depth": [None, 10, 15, 20],
+                                    "model__min_samples_split": [2, 5],
+                                    "model__min_samples_leaf": [1, 2]
+                                },
+                                "Decision Tree Regressor": {
+                                    "model__max_depth": [None, 5, 10, 15, 20],
+                                    "model__min_samples_split": [2, 5, 10],
+                                    "model__min_samples_leaf": [1, 2, 4]
+                                },
+                                "Random Forest Regressor": {
+                                    "model__n_estimators": [50, 100, 150],
+                                    "model__max_depth": [None, 10, 15, 20],
+                                    "model__min_samples_split": [2, 5],
+                                    "model__min_samples_leaf": [1, 2]
+                                },
+                                "Extra Trees Regressor": {
+                                    "model__n_estimators": [50, 100, 150],
+                                    "model__max_depth": [None, 10, 15, 20],
+                                    "model__min_samples_split": [2, 5],
+                                    "model__min_samples_leaf": [1, 2]
+                                }
+                            }
+
+                            if best_name in tuning_spaces:
+                                with st.spinner(
+                                    "Improving the best model... / Model එක improve කරමින්..."
+                                ):
+                                    search = RandomizedSearchCV(
+                                        estimator=baseline_model,
+                                        param_distributions=tuning_spaces[best_name],
+                                        n_iter=5,
+                                        scoring=tuning_scoring,
+                                        cv=3,
+                                        random_state=42,
+                                        n_jobs=1,
+                                        refit=True
+                                    )
+                                    search.fit(X_train, y_train)
+                                    tuned_model = search.best_estimator_
+                                    tuned_predictions = tuned_model.predict(X_test)
+
+                                    if problem_type == "Classification":
+                                        tuned_score = f1_score(
+                                            y_test,
+                                            tuned_predictions,
+                                            average="weighted",
+                                            zero_division=0
+                                        )
+                                        score_name = "F1 Score"
+                                        improved = tuned_score > baseline_score
+                                    else:
+                                        tuned_score = r2_score(
+                                            y_test,
+                                            tuned_predictions
+                                        )
+                                        score_name = "R2 Score"
+                                        improved = tuned_score > baseline_score
+
+                                    tuning_summary = pd.DataFrame([
+                                        {
+                                            "Version": "Original",
+                                            score_name: round(float(baseline_score), 4)
+                                        },
+                                        {
+                                            "Version": "Tuned",
+                                            score_name: round(float(tuned_score), 4)
+                                        }
+                                    ])
+
+                                    if improved:
+                                        best_model = tuned_model
+                                        best_predictions = tuned_predictions
+                                        st.success(
+                                            "Tuned model improved the test score. "
+                                            "/ Tuned model එකේ ප්‍රතිඵල වැඩිදියුණු වුණා."
+                                        )
+                                    else:
+                                        best_predictions = baseline_predictions
+                                        st.info(
+                                            "Tuning did not improve the held-out test score. "
+                                            "The original model was retained. "
+                                            "/ Original model එක තබාගත්තා."
+                                        )
+
+                                    st.write("Before vs After Model Improvement")
+                                    st.dataframe(
+                                        tuning_summary,
+                                        use_container_width=True
+                                    )
+                                    st.write("Best parameters found:")
+                                    st.json(search.best_params_)
+                            else:
+                                best_predictions = baseline_predictions
+                                st.info(
+                                    "Automatic tuning is not configured for this model. "
+                                    "The original model will be used."
+                                )
+                        else:
+                            best_predictions = baseline_predictions
 
                         # Save evaluation data for advanced analytics
                         best_predictions = best_model.predict(X_test)
