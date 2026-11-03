@@ -88,11 +88,6 @@ h1, h2, h3 {
 </style>
 """, unsafe_allow_html=True)
 
-
-# =====================================================
-# SESSION STATE
-# =====================================================
-
 defaults = {
     "trained_model": None,
     "model_name": None,
@@ -102,11 +97,11 @@ defaults = {
     "model_metrics": None,
     "comparison": None,
     "training_data": None,
-    "prediction_results": None
+    "prediction_results": None,
     "y_test": None,
     "y_predictions": None,
     "y_probabilities": None,
-    "X_test": None,
+    "X_test": None
 }
 
 for key, value in defaults.items():
