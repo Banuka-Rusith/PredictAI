@@ -9,7 +9,7 @@ from io import BytesIO
 from sklearn.model_selection import train_test_split
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder, StandardScaler, RobustScaler
 from sklearn.impute import SimpleImputer
 from sklearn.inspection import permutation_importance
 
@@ -192,7 +192,7 @@ def prepare_dataset(df, target):
 # PREPROCESSING
 # =====================================================
 
-def build_preprocessor(X):
+def build_preprocessor(X, scaling_method="StandardScaler"):
 
     numeric_columns = X.select_dtypes(
         include=["number", "bool"]
@@ -207,16 +207,19 @@ def build_preprocessor(X):
 
     if numeric_columns:
 
-        numeric_pipeline = Pipeline([
+        numeric_steps = [
             (
                 "imputer",
                 SimpleImputer(strategy="median")
-            ),
-            (
-                "scaler",
-                StandardScaler()
             )
-        ])
+        ]
+
+        if scaling_method == "StandardScaler":
+            numeric_steps.append(("scaler", StandardScaler()))
+        elif scaling_method == "RobustScaler":
+            numeric_steps.append(("scaler", RobustScaler()))
+
+        numeric_pipeline = Pipeline(numeric_steps)
 
         transformers.append(
             (
@@ -1085,6 +1088,63 @@ elif page == "AI Model Training":
 
             st.success("Dataset uploaded successfully!")
 
+            st.markdown("### Preprocessing Settings | දත්ත සකස් කිරීමේ සැකසුම්")
+            st.caption(
+                "Choose how duplicate rows and numerical feature scaling should be handled. "
+                "/ Duplicate rows සහ numerical scaling handle කරන ආකාරය තෝරන්න."
+            )
+
+            remove_duplicates = st.checkbox(
+                "Remove exact duplicate rows / සම්පූර්ණයෙන්ම සමාන duplicate rows ඉවත් කරන්න",
+                value=False,
+                help=(
+                    "Disabled by default because repeated rows may be valid observations. "
+                    "Enable only when duplicates should be removed."
+                )
+            )
+
+            duplicate_count = int(df.duplicated().sum())
+            if duplicate_count:
+                st.info(
+                    f"{duplicate_count:,} exact duplicate rows detected. "
+                    "Review before removing them. / Duplicate rows හඳුනාගෙන ඇත."
+                )
+
+            if remove_duplicates and duplicate_count:
+                df = df.drop_duplicates().copy()
+                st.success(
+                    f"Removed {duplicate_count:,} duplicate rows. "
+                    "/ Duplicate rows ඉවත් කළා."
+                )
+
+            scaling_method = st.selectbox(
+                "Numerical Feature Scaling / Numerical features scale කරන ක්‍රමය",
+                ["StandardScaler", "RobustScaler", "No Scaling"],
+                index=0,
+                help=(
+                    "StandardScaler centers and scales features. RobustScaler uses "
+                    "the median and interquartile range and is less affected by outliers. "
+                    "No Scaling leaves numeric feature magnitudes unchanged."
+                )
+            )
+
+            if scaling_method == "RobustScaler":
+                st.info(
+                    "RobustScaler uses median and interquartile range. "
+                    "It can reduce the influence of extreme values, but it does not remove outliers. "
+                    "/ Outliers ඉවත් නොකර ඒවායේ බලපෑම අඩු කිරීමට උපකාරී වේ."
+                )
+            elif scaling_method == "No Scaling":
+                st.info(
+                    "Numerical features will not be scaled. "
+                    "/ Numerical features scale කරන්නේ නැහැ."
+                )
+            else:
+                st.caption(
+                    "StandardScaler is the default scaling method. "
+                    "/ StandardScaler default ලෙස භාවිතා වේ."
+                )
+
             c1, c2, c3 = st.columns(3)
 
             c1.metric(
@@ -1336,7 +1396,7 @@ elif page == "AI Model Training":
                             pipeline = Pipeline([
                                 (
                                     "preprocessing",
-                                    build_preprocessor(X_train)
+                                    build_preprocessor(X_train, scaling_method)
                                 ),
                                 (
                                     "model",
