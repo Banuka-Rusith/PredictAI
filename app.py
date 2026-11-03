@@ -11,6 +11,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.impute import SimpleImputer
+from sklearn.inspection import permutation_importance
 
 from sklearn.metrics import (
     accuracy_score,
@@ -501,6 +502,181 @@ if page == "Dashboard":
             fig,
             use_container_width=True
         )
+        
+        # =============================================
+        # ADVANCED MODEL ANALYTICS
+        # =============================================
+
+        st.divider()
+        st.header("Advanced Model Analytics")
+
+        model = st.session_state.trained_model
+        y_test = st.session_state.y_test
+        y_pred = st.session_state.y_predictions
+        X_test = st.session_state.X_test
+        y_prob = st.session_state.y_probabilities
+
+        if y_test is not None and y_pred is not None:
+
+            # -----------------------------------------
+            # CONFUSION MATRIX
+            # -----------------------------------------
+
+            if st.session_state.problem_type == "Classification":
+
+                st.subheader("Confusion Matrix")
+
+                cm = confusion_matrix(
+                    y_test,
+                    y_pred
+                )
+
+                fig_cm, ax_cm = plt.subplots(figsize=(6, 4))
+
+                display = ConfusionMatrixDisplay(
+                    confusion_matrix=cm
+                )
+
+                display.plot(
+                    ax=ax_cm,
+                    cmap="Blues",
+                    colorbar=False
+                )
+
+                st.pyplot(fig_cm)
+                plt.close(fig_cm)
+
+                # -------------------------------------
+                # ROC CURVE
+                # -------------------------------------
+
+                st.subheader("ROC Curve")
+
+                if (
+                    y_prob is not None
+                    and y_prob.shape[1] == 2
+                ):
+
+                    classes = model.named_steps["model"].classes_
+                    positive_class = classes[1]
+
+                    y_binary = (
+                        np.asarray(y_test) == positive_class
+                    ).astype(int)
+
+                    fpr, tpr, thresholds = roc_curve(
+                        y_binary,
+                        y_prob[:, 1]
+                    )
+
+                    auc_value = roc_auc_score(
+                        y_binary,
+                        y_prob[:, 1]
+                    )
+
+                    fig_roc = px.area(
+                        x=fpr,
+                        y=tpr,
+                        title=f"ROC Curve (AUC = {auc_value:.4f})",
+                        labels={
+                            "x": "False Positive Rate",
+                            "y": "True Positive Rate"
+                        }
+                    )
+
+                    fig_roc.add_shape(
+                        type="line",
+                        x0=0,
+                        y0=0,
+                        x1=1,
+                        y1=1,
+                        line=dict(
+                            dash="dash",
+                            color="gray"
+                        )
+                    )
+
+                    st.plotly_chart(
+                        fig_roc,
+                        use_container_width=True
+                    )
+
+                    st.metric(
+                        "ROC AUC Score",
+                        f"{auc_value:.4f}"
+                    )
+
+                else:
+
+                    st.info(
+                        "ROC Curve is available for binary "
+                        "classification models with probability output."
+                    )
+
+            # -----------------------------------------
+            # FEATURE IMPORTANCE
+            # -----------------------------------------
+
+            st.divider()
+            st.subheader("Feature Importance")
+
+            if st.button("Calculate Feature Importance"):
+
+                with st.spinner("Analyzing feature importance..."):
+
+                    if st.session_state.problem_type == "Classification":
+                        scoring_method = "f1_weighted"
+                    else:
+                        scoring_method = "r2"
+
+                    importance_result = permutation_importance(
+                        model,
+                        X_test,
+                        y_test,
+                        n_repeats=5,
+                        random_state=42,
+                        scoring=scoring_method,
+                        n_jobs=-1
+                    )
+
+                    importance_df = pd.DataFrame({
+                        "Feature": X_test.columns,
+                        "Importance": importance_result.importances_mean
+                    })
+
+                    importance_df = importance_df.sort_values(
+                        "Importance",
+                        ascending=False
+                    )
+
+                    fig_importance = px.bar(
+                        importance_df,
+                        x="Importance",
+                        y="Feature",
+                        orientation="h",
+                        title="Feature Importance Analysis"
+                    )
+
+                    fig_importance.update_layout(
+                        yaxis={"categoryorder": "total ascending"}
+                    )
+
+                    st.plotly_chart(
+                        fig_importance,
+                        use_container_width=True
+                    )
+
+                    st.dataframe(
+                        importance_df,
+                        use_container_width=True
+                    )
+
+        else:
+
+            st.info(
+                "Train a model to view advanced analytics."
+            )
+
 
 
 # =====================================================
