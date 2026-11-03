@@ -1,0 +1,9 @@
+{
+  "model_name": "Random Forest Classifier",
+  "dataset": "AI4I 2020 Predictive Maintenance Dataset",
+  "accuracy": 98.25,
+  "precision": 92.31,
+  "recall": 52.94,
+  "f1_score": 67.29,
+  "n_estimators": 200
+}
