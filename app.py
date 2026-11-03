@@ -2000,6 +2000,186 @@ elif page == "Predictions":
             )
 
 
+            # -----------------------------------------
+            # INDIVIDUAL PREDICTION EXPLANATION
+            # -----------------------------------------
+
+            st.divider()
+            st.subheader("Why did the model make this prediction?")
+            st.caption(
+                "One-feature-at-a-time sensitivity analysis. "
+                "This is an educational approximation, not SHAP or a causal explanation. "
+                "/ එක් feature එකක් වෙනස් කළාම prediction එක වෙනස් වන ආකාරය පෙන්වයි."
+            )
+
+            explanation_features = st.session_state.feature_columns
+            available_rows = min(len(results), 1000)
+
+            if available_rows > 0 and explanation_features:
+
+                selected_row = st.selectbox(
+                    "Select a prediction row to explain / පැහැදිලි කිරීමට row එක තෝරන්න",
+                    options=list(range(available_rows)),
+                    format_func=lambda row_number: f"Row {row_number + 1}"
+                )
+
+                if st.button(
+                    "Explain This Prediction / මේ prediction එක පැහැදිලි කරන්න"
+                ):
+
+                    with st.spinner("Analyzing feature effects..."):
+
+                        try:
+                            original_row = results.iloc[
+                                [selected_row]
+                            ][explanation_features].copy()
+
+                            baseline_prediction = model.predict(
+                                original_row
+                            )[0]
+
+                            explanation_rows = []
+
+                            # Limit the number of tested features to keep
+                            # the app responsive on Streamlit Cloud.
+                            features_to_check = explanation_features[:20]
+
+                            if st.session_state.problem_type == "Classification":
+                                if hasattr(model, "predict_proba"):
+                                    baseline_probabilities = model.predict_proba(
+                                        original_row
+                                    )[0]
+                                    model_classes = list(model.classes_)
+                                    predicted_class_index = model_classes.index(
+                                        baseline_prediction
+                                    )
+                                    baseline_value = float(
+                                        baseline_probabilities[predicted_class_index]
+                                    )
+                                else:
+                                    baseline_value = None
+                            else:
+                                baseline_value = float(baseline_prediction)
+
+                            for feature_name in features_to_check:
+
+                                changed_row = original_row.copy()
+                                reference_column = results[feature_name]
+
+                                if pd.api.types.is_numeric_dtype(
+                                    reference_column
+                                ):
+                                    reference_value = reference_column.median()
+                                else:
+                                    modes = reference_column.mode(dropna=True)
+                                    if modes.empty:
+                                        continue
+                                    reference_value = modes.iloc[0]
+
+                                changed_row.loc[
+                                    changed_row.index[0],
+                                    feature_name
+                                ] = reference_value
+
+                                changed_prediction = model.predict(
+                                    changed_row
+                                )[0]
+
+                                if st.session_state.problem_type == "Classification":
+                                    if not hasattr(model, "predict_proba"):
+                                        continue
+
+                                    changed_probabilities = model.predict_proba(
+                                        changed_row
+                                    )[0]
+                                    changed_value = float(
+                                        changed_probabilities[predicted_class_index]
+                                    )
+                                    impact = changed_value - baseline_value
+                                    explanation_rows.append({
+                                        "Feature": feature_name,
+                                        "Current Value": str(
+                                            original_row.iloc[0][feature_name]
+                                        ),
+                                        "Reference Value": str(reference_value),
+                                        "Change in Predicted Class Probability": impact
+                                    })
+                                else:
+                                    changed_value = float(changed_prediction)
+                                    impact = changed_value - baseline_value
+                                    explanation_rows.append({
+                                        "Feature": feature_name,
+                                        "Current Value": str(
+                                            original_row.iloc[0][feature_name]
+                                        ),
+                                        "Reference Value": str(reference_value),
+                                        "Change in Prediction": impact
+                                    })
+
+                            if explanation_rows:
+                                explanation_df = pd.DataFrame(
+                                    explanation_rows
+                                )
+                                impact_column = (
+                                    "Change in Predicted Class Probability"
+                                    if st.session_state.problem_type == "Classification"
+                                    else "Change in Prediction"
+                                )
+                                explanation_df["Absolute Impact"] = (
+                                    explanation_df[impact_column].abs()
+                                )
+                                explanation_df = explanation_df.sort_values(
+                                    "Absolute Impact",
+                                    ascending=False
+                                ).drop(columns=["Absolute Impact"])
+
+                                st.write(
+                                    f"Original model prediction: **{baseline_prediction}**"
+                                )
+
+                                if st.session_state.problem_type == "Classification":
+                                    st.write(
+                                        "The changes below show how replacing one feature "
+                                        "with its typical value affects the probability of "
+                                        "the original predicted class."
+                                    )
+                                    explanation_df[impact_column] = (
+                                        explanation_df[impact_column] * 100
+                                    )
+                                    explanation_df = explanation_df.rename(
+                                        columns={
+                                            impact_column:
+                                            "Probability Change (percentage points)"
+                                        }
+                                    )
+
+                                st.dataframe(
+                                    explanation_df,
+                                    use_container_width=True
+                                )
+
+                                st.info(
+                                    "Important: features are changed one at a time. "
+                                    "Correlated features and interactions are not fully captured. "
+                                    "This analysis explains model sensitivity, not cause and effect. "
+                                    "/ මෙය model sensitivity එකක් පමණයි; හේතුවක් බව තහවුරු කරන්නේ නැහැ."
+                                )
+                            else:
+                                st.warning(
+                                    "No explanation could be calculated for this model."
+                                )
+
+                        except Exception as explanation_error:
+                            st.error(
+                                f"Explanation Error: {explanation_error}"
+                            )
+
+            else:
+                st.info(
+                    "Generate predictions first to use this explanation feature."
+                )
+
+
 # =====================================================
 # REPORTS
 # =====================================================
