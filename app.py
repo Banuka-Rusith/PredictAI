@@ -74,17 +74,141 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-.main {
-    background-color: #f5f7fb;
+/* PredictAI visual system */
+:root {
+    --pa-navy: #142D4E;
+    --pa-blue: #2563EB;
+    --pa-cyan: #06B6D4;
+    --pa-bg: #F4F7FC;
+    --pa-card: #FFFFFF;
+    --pa-border: #E3EAF4;
+    --pa-muted: #64748B;
 }
+
+.stApp {
+    background: var(--pa-bg);
+}
+
+[data-testid="stHeader"] {
+    background: rgba(244, 247, 252, 0.88);
+}
+
+.block-container {
+    padding-top: 1.7rem;
+    padding-bottom: 3rem;
+    max-width: 1450px;
+}
+
 h1, h2, h3 {
-    color: #173B5E;
+    color: var(--pa-navy);
+    letter-spacing: -0.025em;
 }
+
+h2 {
+    margin-top: 0.5rem;
+}
+
+p, label, .stMarkdown {
+    color: #334155;
+}
+
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #142D4E 0%, #1D426B 100%);
+}
+
+[data-testid="stSidebar"] * {
+    color: #F8FAFC;
+}
+
+[data-testid="stSidebar"] [data-testid="stRadio"] label {
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 0.48rem 0.65rem;
+    margin: 0.15rem 0;
+    transition: all 0.18s ease;
+}
+
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
+    background: rgba(255,255,255,0.15);
+    border-color: rgba(255,255,255,0.28);
+}
+
+[data-testid="stSidebar"] hr {
+    border-color: rgba(255,255,255,0.18);
+}
+
 [data-testid="stMetric"] {
-    background: white;
-    padding: 15px;
+    background: var(--pa-card);
+    padding: 1rem 1.1rem;
+    border-radius: 14px;
+    border: 1px solid var(--pa-border);
+    box-shadow: 0 3px 12px rgba(20,45,78,0.045);
+}
+
+[data-testid="stMetricLabel"] {
+    color: var(--pa-muted);
+    font-weight: 600;
+}
+
+[data-testid="stMetricValue"] {
+    color: var(--pa-navy);
+    font-weight: 750;
+}
+
+.stButton > button, .stDownloadButton > button {
+    border-radius: 10px;
+    min-height: 2.65rem;
+    font-weight: 650;
+    border: 1px solid #D6E1F0;
+    transition: all 0.18s ease;
+}
+
+.stButton > button[kind="primary"] {
+    background: linear-gradient(90deg, #2563EB, #0EA5E9);
+    border: 0;
+    color: white;
+}
+
+.stButton > button:hover, .stDownloadButton > button:hover {
+    border-color: #2563EB;
+    transform: translateY(-1px);
+    box-shadow: 0 5px 14px rgba(37,99,235,0.12);
+}
+
+[data-testid="stFileUploader"] {
+    background: #FFFFFF;
+    border: 1px dashed #9DB5D4;
+    border-radius: 14px;
+    padding: 0.5rem;
+}
+
+[data-testid="stDataFrame"], [data-testid="stTable"] {
+    border: 1px solid var(--pa-border);
     border-radius: 12px;
-    border: 1px solid #e5eaf0;
+    overflow: hidden;
+}
+
+[data-testid="stAlert"] {
+    border-radius: 12px;
+}
+
+div[data-testid="stExpander"] {
+    background: #FFFFFF;
+    border: 1px solid var(--pa-border);
+    border-radius: 12px;
+}
+
+hr {
+    border-color: var(--pa-border);
+}
+
+@media (max-width: 768px) {
+    .block-container {
+        padding-left: 1rem;
+        padding-right: 1rem;
+        padding-top: 1rem;
+    }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -400,10 +524,18 @@ def generate_pdf(comparison, model_name, problem_type):
 # SIDEBAR
 # =====================================================
 
-st.sidebar.title("🤖 PredictAI")
-
-st.sidebar.caption(
-    "Universal AI Training Platform"
+st.sidebar.markdown(
+    """
+    <div style="padding: 0.35rem 0 1rem 0;">
+      <div style="font-size: 2rem; font-weight: 800; letter-spacing: -1px;">
+        🤖 Predict<span style="color:#67E8F9;">AI</span>
+      </div>
+      <div style="font-size: 0.78rem; color:#CBD5E1; margin-top:2px;">
+        UNIVERSAL MACHINE LEARNING PLATFORM
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True
 )
 
 page = st.sidebar.radio(
@@ -435,10 +567,29 @@ else:
 # MAIN HEADER
 # =====================================================
 
-st.title("🤖 PredictAI")
-
-st.caption(
-    "Train AI Models | Compare Performance | Make Predictions"
+st.markdown(
+    """
+    <div style="
+        background: linear-gradient(115deg, #142D4E 0%, #1D4F91 62%, #0891B2 100%);
+        padding: 1.45rem 1.7rem;
+        border-radius: 18px;
+        margin: 0.1rem 0 1.5rem 0;
+        box-shadow: 0 8px 24px rgba(20,45,78,0.12);
+    ">
+      <div style="color:#BAE6FD; font-size:0.76rem; font-weight:700;
+                  letter-spacing:0.12em; text-transform:uppercase;">
+        Universal Machine Learning Platform
+      </div>
+      <div style="color:white; font-size:2.05rem; font-weight:800;
+                  letter-spacing:-0.04em; margin-top:0.2rem;">
+        PredictAI
+      </div>
+      <div style="color:#E0F2FE; font-size:0.94rem; margin-top:0.25rem;">
+        Train models · Compare performance · Explore data · Make predictions
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True
 )
 
 
