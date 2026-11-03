@@ -1,288 +1,325 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
-import json
 import plotly.express as px
-from pathlib import Path
-from io import BytesIO
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table
-from reportlab.lib.styles import getSampleStyleSheet
 
-# ---------------- PAGE CONFIG ----------------
+from io import BytesIO
+from sklearn.model_selection import train_test_split
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    mean_absolute_error, mean_squared_error, r2_score
+)
+from sklearn.ensemble import (
+    RandomForestClassifier, ExtraTreesClassifier,
+    RandomForestRegressor, ExtraTreesRegressor
+)
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+from sklearn.linear_model import LogisticRegression, LinearRegression
+
+
+# =====================================================
+# PAGE CONFIGURATION
+# =====================================================
 
 st.set_page_config(
-    page_title="PredictAI | Predictive Maintenance",
-    page_icon="⚙️",
+    page_title="PredictAI - AI Training Platform",
+    page_icon="🤖",
     layout="wide"
 )
 
-# ---------------- CUSTOM DESIGN ----------------
-
 st.markdown("""
 <style>
-.main {
-    background-color: #f5f7fb;
-}
-h1, h2, h3 {
-    color: #15304b;
-}
+.main {background-color: #f5f7fb;}
+h1, h2, h3 {color: #173B5E;}
 [data-testid="stMetric"] {
-    background-color: white;
-    padding: 18px;
+    background: white;
+    padding: 15px;
     border-radius: 12px;
     border: 1px solid #e5eaf0;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------- MODEL LOADING ----------------
 
-BASE_DIR = Path(__file__).parent
-MODEL_DIR = BASE_DIR / "model"
+# =====================================================
+# SESSION STATE
+# =====================================================
 
-@st.cache_resource
-def load_model():
-    model = joblib.load(MODEL_DIR / "random_forest_model.joblib")
+defaults = {
+    "trained_model": None,
+    "model_name": None,
+    "problem_type": None,
+    "target_column": None,
+    "feature_columns": None,
+    "model_metrics": None,
+    "comparison": None,
+    "training_data": None,
+    "prediction_results": None
+}
 
-    with open(MODEL_DIR / "feature_columns.json") as f:
-        feature_columns = json.load(f)
-
-    with open(MODEL_DIR / "model_info.json") as f:
-        model_info = json.load(f)
-
-    return model, feature_columns, model_info
-
-
-try:
-    model, feature_columns, model_info = load_model()
-except Exception as e:
-    st.error(f"Model loading failed: {e}")
-    st.stop()
+for key, value in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
 
 
-# ---------------- SESSION STATE ----------------
+# =====================================================
+# HELPER FUNCTIONS
+# =====================================================
 
-if "results" not in st.session_state:
-    st.session_state.results = None
-
-if "uploaded_data" not in st.session_state:
-    st.session_state.uploaded_data = None
-
-
-# ---------------- DATA PREPROCESSING ----------------
-
-REQUIRED_COLUMNS = [
-    "Air temperature [K]",
-    "Process temperature [K]",
-    "Rotational speed [rpm]",
-    "Torque [Nm]",
-    "Tool wear [min]",
-    "Type"
-]
+def read_dataset(file):
+    if file.name.lower().endswith(".csv"):
+        return pd.read_csv(file)
+    return pd.read_excel(file)
 
 
-def prepare_data(df):
+def clean_dataset(df, target):
+    data = df.copy()
 
-    missing = [
-        col for col in REQUIRED_COLUMNS
-        if col not in df.columns
+    data = data.replace([np.inf, -np.inf], np.nan)
+    data = data.dropna(axis=1, how="all")
+
+    if target not in data.columns:
+        raise ValueError("Target column not found.")
+
+    data = data.dropna(subset=[target])
+
+    if len(data) < 10:
+        raise ValueError("At least 10 usable rows are required.")
+
+    X = data.drop(columns=[target])
+    y = data[target]
+
+    # Remove columns that contain only one value
+    constant_cols = [
+        col for col in X.columns
+        if X[col].nunique(dropna=True) <= 1
     ]
 
-    if missing:
-        raise ValueError(
-            "Missing required columns: " + ", ".join(missing)
+    X = X.drop(columns=constant_cols)
+
+    if X.shape[1] == 0:
+        raise ValueError("No useful feature columns found.")
+
+    # Convert numeric-looking text columns where appropriate
+    for col in X.columns:
+        if X[col].dtype == "object":
+            converted = pd.to_numeric(X[col], errors="coerce")
+            if converted.notna().mean() > 0.9:
+                X[col] = converted
+
+    # Remove unsupported complex column types
+    X = X.select_dtypes(
+        include=["number", "object", "category", "bool"]
+    )
+
+    if X.shape[1] == 0:
+        raise ValueError("No supported input features found.")
+
+    return X, y
+
+
+def build_preprocessor(X):
+    numeric_columns = X.select_dtypes(
+        include=["number", "bool"]
+    ).columns.tolist()
+
+    categorical_columns = [
+        col for col in X.columns
+        if col not in numeric_columns
+    ]
+
+    numeric_pipeline = Pipeline([
+        ("imputer", SimpleImputer(strategy="median")),
+        ("scaler", StandardScaler())
+    ])
+
+    categorical_pipeline = Pipeline([
+        ("imputer", SimpleImputer(strategy="most_frequent")),
+        ("encoder", OneHotEncoder(handle_unknown="ignore"))
+    ])
+
+    transformers = []
+
+    if numeric_columns:
+        transformers.append(
+            ("numeric", numeric_pipeline, numeric_columns)
         )
 
-    data = df[REQUIRED_COLUMNS].copy()
+    if categorical_columns:
+        transformers.append(
+            ("categorical", categorical_pipeline, categorical_columns)
+        )
 
-    if data.isnull().any().any():
-        raise ValueError("Dataset contains missing values.")
+    return ColumnTransformer(transformers)
 
-    for col in REQUIRED_COLUMNS[:-1]:
-        data[col] = pd.to_numeric(data[col], errors="raise")
 
-    data["Type"] = data["Type"].astype(str).str.strip().str.upper()
+# =====================================================
+# MODEL DEFINITIONS
+# =====================================================
 
-    if not data["Type"].isin(["L", "M", "H"]).all():
-        raise ValueError("Type must contain only L, M or H.")
-
-    data["Type"] = pd.Categorical(
-        data["Type"],
-        categories=["H", "L", "M"]
+CLASSIFICATION_MODELS = {
+    "Logistic Regression": LogisticRegression(
+        max_iter=1000, class_weight="balanced"
+    ),
+    "Decision Tree": DecisionTreeClassifier(
+        max_depth=15, class_weight="balanced",
+        random_state=42
+    ),
+    "Random Forest": RandomForestClassifier(
+        n_estimators=100, class_weight="balanced",
+        random_state=42, n_jobs=-1
+    ),
+    "Extra Trees": ExtraTreesClassifier(
+        n_estimators=100, class_weight="balanced",
+        random_state=42, n_jobs=-1
     )
+}
 
-    data = pd.get_dummies(
-        data,
-        columns=["Type"],
-        drop_first=True,
-        dtype=int
+REGRESSION_MODELS = {
+    "Linear Regression": LinearRegression(),
+    "Decision Tree Regressor": DecisionTreeRegressor(
+        max_depth=15, random_state=42
+    ),
+    "Random Forest Regressor": RandomForestRegressor(
+        n_estimators=100, random_state=42, n_jobs=-1
+    ),
+    "Extra Trees Regressor": ExtraTreesRegressor(
+        n_estimators=100, random_state=42, n_jobs=-1
     )
-
-    data = data.reindex(
-        columns=feature_columns,
-        fill_value=0
-    )
-
-    return data
+}
 
 
-# ---------------- PREDICTIONS ----------------
+# =====================================================
+# SIDEBAR
+# =====================================================
 
-def make_predictions(df):
-
-    X = prepare_data(df)
-
-    predictions = model.predict(X)
-    probabilities = model.predict_proba(X)[:, 1]
-
-    results = df.copy()
-
-    results["Predicted Condition"] = np.where(
-        predictions == 1,
-        "Failure Risk",
-        "Normal"
-    )
-
-    results["Failure Probability (%)"] = (
-        probabilities * 100
-    ).round(2)
-
-    return results
-
-
-# ---------------- SIDEBAR ----------------
-
-st.sidebar.title("⚙️ PredictAI")
-
-st.sidebar.caption(
-    "AI-Based Predictive Maintenance System"
-)
+st.sidebar.title("🤖 PredictAI")
+st.sidebar.caption("Universal AI Training Platform")
 
 page = st.sidebar.radio(
     "Navigation",
     [
         "Dashboard",
-        "Dataset Upload",
-        "AI Predictions",
-        "Analytics",
+        "AI Model Training",
+        "Predictions",
         "Reports",
         "About"
     ]
 )
 
 st.sidebar.divider()
-st.sidebar.success("AI Model Loaded")
+
+if st.session_state.trained_model is not None:
+    st.sidebar.success("Trained Model Available")
+else:
+    st.sidebar.info("No trained model yet")
 
 
-# ---------------- HEADER ----------------
+# =====================================================
+# HEADER
+# =====================================================
 
-st.title("⚙️ PredictAI")
-st.caption("Intelligent Machine Failure Prediction Platform")
+st.title("🤖 PredictAI")
+st.caption("Train AI Models | Compare Performance | Make Predictions")
 
 
-# ---------------- DASHBOARD ----------------
+# =====================================================
+# DASHBOARD
+# =====================================================
 
 if page == "Dashboard":
 
-    st.subheader("Dashboard Overview")
+    st.subheader("Platform Dashboard")
 
-    if st.session_state.results is None:
+    if st.session_state.trained_model is None:
 
         st.info(
-            "Please upload a dataset and run AI predictions "
-            "to view your dashboard."
+            "Welcome to PredictAI! Go to AI Model Training "
+            "to upload a dataset and train your first model."
         )
 
     else:
 
-        results = st.session_state.results
+        metrics = st.session_state.model_metrics
 
-        total = len(results)
+        c1, c2, c3 = st.columns(3)
 
-        failures = (
-            results["Predicted Condition"] == "Failure Risk"
-        ).sum()
-
-        normal = total - failures
-
-        failure_rate = (
-            failures / total * 100 if total else 0
+        c1.metric(
+            "Selected Model",
+            st.session_state.model_name
         )
 
-        c1, c2, c3, c4 = st.columns(4)
+        c2.metric(
+            "Problem Type",
+            st.session_state.problem_type
+        )
 
-        c1.metric("Total Machines", f"{total:,}")
-        c2.metric("Predicted Failures", f"{failures:,}")
-        c3.metric("Normal Machines", f"{normal:,}")
-        c4.metric("Failure Rate", f"{failure_rate:.2f}%")
+        primary_metric = (
+            "F1 Score"
+            if st.session_state.problem_type == "Classification"
+            else "R² Score"
+        )
+
+        c3.metric(
+            primary_metric,
+            f"{metrics[primary_metric]:.4f}"
+        )
 
         st.divider()
 
-        col1, col2 = st.columns(2)
-
-        with col1:
-
-            fig = px.pie(
-                names=["Normal", "Failure Risk"],
-                values=[normal, failures],
-                title="Machine Condition Distribution",
-                hole=0.45
-            )
-
-            st.plotly_chart(fig, use_container_width=True)
-
-        with col2:
-
-            fig = px.histogram(
-                results,
-                x="Failure Probability (%)",
-                nbins=20,
-                title="Failure Probability Distribution"
-            )
-
-            st.plotly_chart(fig, use_container_width=True)
-
-        st.subheader("Recent Predictions")
+        st.subheader("Model Performance")
 
         st.dataframe(
-            results.tail(10),
+            st.session_state.comparison,
             use_container_width=True
         )
 
+        fig = px.bar(
+            st.session_state.comparison,
+            x="Model",
+            y=primary_metric,
+            title=f"Model Comparison - {primary_metric}"
+        )
 
-# ---------------- DATASET UPLOAD ----------------
+        st.plotly_chart(fig, use_container_width=True)
 
-elif page == "Dataset Upload":
 
-    st.subheader("Upload Machine Dataset")
+# =====================================================
+# AI MODEL TRAINING
+# =====================================================
+
+elif page == "AI Model Training":
+
+    st.subheader("AI Model Training Center")
 
     st.write(
-        "Upload your AI4I-compatible CSV or Excel dataset."
+        "Upload a dataset, select a target column "
+        "and train multiple machine learning algorithms."
     )
 
     uploaded_file = st.file_uploader(
-        "Choose CSV or Excel file",
-        type=["csv", "xlsx"]
+        "Upload CSV or Excel Dataset",
+        type=["csv", "xlsx"],
+        key="training_upload"
     )
 
     if uploaded_file is not None:
 
         try:
 
-            if uploaded_file.name.endswith(".csv"):
-                df = pd.read_csv(uploaded_file)
-            else:
-                df = pd.read_excel(uploaded_file)
-
-            st.session_state.uploaded_data = df
+            df = read_dataset(uploaded_file)
 
             st.success("Dataset uploaded successfully!")
 
             c1, c2, c3 = st.columns(3)
 
-            c1.metric("Rows", len(df))
+            c1.metric("Rows", f"{len(df):,}")
             c2.metric("Columns", len(df.columns))
             c3.metric(
                 "Missing Values",
@@ -292,158 +329,404 @@ elif page == "Dataset Upload":
             st.subheader("Dataset Preview")
 
             st.dataframe(
-                df.head(20),
+                df.head(10),
                 use_container_width=True
             )
 
-            if st.button("🚀 Run AI Predictions"):
+            target = st.selectbox(
+                "Select Target Column",
+                df.columns.tolist()
+            )
 
-                with st.spinner("AI model is analyzing data..."):
+            problem_type = st.radio(
+                "Select Machine Learning Type",
+                ["Classification", "Regression"],
+                horizontal=True
+            )
 
-                    predictions = make_predictions(df)
+            test_size = st.slider(
+                "Test Dataset Percentage",
+                min_value=10,
+                max_value=40,
+                value=20,
+                step=5
+            )
 
-                    st.session_state.results = predictions
+            available_models = (
+                CLASSIFICATION_MODELS
+                if problem_type == "Classification"
+                else REGRESSION_MODELS
+            )
 
-                st.success("AI predictions completed!")
+            selected_models = st.multiselect(
+                "Select AI Algorithms",
+                list(available_models.keys()),
+                default=list(available_models.keys())
+            )
 
-        except Exception as e:
+            st.caption(
+                "Training can take some time depending on dataset size."
+            )
 
-            st.error(f"Error: {e}")
+            if st.button(
+                "🚀 Train AI Models",
+                type="primary",
+                use_container_width=True
+            ):
+
+                if not selected_models:
+                    st.error("Select at least one algorithm.")
+
+                else:
+
+                    try:
+
+                        X, y = clean_dataset(df, target)
+
+                        if problem_type == "Classification":
+
+                            if y.nunique() < 2:
+                                raise ValueError(
+                                    "Classification needs at least two classes."
+                                )
+
+                            if y.nunique() > 50:
+                                raise ValueError(
+                                    "Too many target classes. "
+                                    "Please check your target column."
+                                )
+
+                            if y.value_counts().min() < 2:
+                                raise ValueError(
+                                    "Each target class needs at least "
+                                    "two records for train/test splitting."
+                                )
+
+                        else:
+
+                            y = pd.to_numeric(y, errors="coerce")
+                            valid = y.notna()
+
+                            X = X.loc[valid]
+                            y = y.loc[valid]
+
+                            if len(y) < 10:
+                                raise ValueError(
+                                    "Not enough numeric target records."
+                                )
+
+                        stratify = None
+
+                        if problem_type == "Classification":
+                            if y.value_counts().min() >= 2:
+                                stratify = y
+
+                        X_train, X_test, y_train, y_test = train_test_split(
+                            X,
+                            y,
+                            test_size=test_size / 100,
+                            random_state=42,
+                            stratify=stratify
+                        )
+
+                        results = []
+                        trained_models = {}
+
+                        progress = st.progress(0)
+                        status = st.empty()
+
+                        for index, name in enumerate(selected_models):
+
+                            status.write(f"Training {name}...")
+
+                            preprocessor = build_preprocessor(X_train)
+
+                            pipeline = Pipeline([
+                                ("preprocessing", preprocessor),
+                                ("model", available_models[name])
+                            ])
+
+                            pipeline.fit(X_train, y_train)
+
+                            predictions = pipeline.predict(X_test)
+
+                            if problem_type == "Classification":
+
+                                accuracy = accuracy_score(
+                                    y_test, predictions
+                                )
+
+                                precision = precision_score(
+                                    y_test,
+                                    predictions,
+                                    average="weighted",
+                                    zero_division=0
+                                )
+
+                                recall = recall_score(
+                                    y_test,
+                                    predictions,
+                                    average="weighted",
+                                    zero_division=0
+                                )
+
+                                f1 = f1_score(
+                                    y_test,
+                                    predictions,
+                                    average="weighted",
+                                    zero_division=0
+                                )
+
+                                row = {
+                                    "Model": name,
+                                    "Accuracy": round(accuracy, 4),
+                                    "Precision": round(precision, 4),
+                                    "Recall": round(recall, 4),
+                                    "F1 Score": round(f1, 4)
+                                }
+
+                            else:
+
+                                mae = mean_absolute_error(
+                                    y_test, predictions
+                                )
+
+                                rmse = np.sqrt(
+                                    mean_squared_error(
+                                        y_test, predictions
+                                    )
+                                )
+
+                                r2 = r2_score(
+                                    y_test, predictions
+                                )
+
+                                row = {
+                                    "Model": name,
+                                    "MAE": round(mae, 4),
+                                    "RMSE": round(rmse, 4),
+                                    "R² Score": round(r2, 4)
+                                }
+
+                            results.append(row)
+
+                            trained_models[name] = pipeline
+
+                            progress.progress(
+                                (index + 1) / len(selected_models)
+                            )
+
+                        comparison = pd.DataFrame(results)
+
+                        if problem_type == "Classification":
+                            comparison = comparison.sort_values(
+                                "F1 Score", ascending=False
+                            )
+                        else:
+                            comparison = comparison.sort_values(
+                                "R² Score", ascending=False
+                            )
+
+                        best_name = comparison.iloc[0]["Model"]
+                        best_model = trained_models[best_name]
+
+                        st.session_state.trained_model = best_model
+                        st.session_state.model_name = best_name
+                        st.session_state.problem_type = problem_type
+                        st.session_state.target_column = target
+                        st.session_state.feature_columns = X.columns.tolist()
+                        st.session_state.model_metrics = (
+                            comparison.iloc[0].to_dict()
+                        )
+                        st.session_state.comparison = comparison
+                        st.session_state.training_data = df.copy()
+                        st.session_state.prediction_results = None
+
+                        status.success("All selected models trained!")
+
+                        st.balloons()
+
+                        st.subheader("Model Comparison")
+
+                        st.dataframe(
+                            comparison,
+                            use_container_width=True
+                        )
+
+                        st.success(
+                            f"Best model: {best_name}"
+                        )
+
+                        if problem_type == "Classification":
+
+                            fig = px.bar(
+                                comparison,
+                                x="Model",
+                                y=["Accuracy", "Precision", "Recall", "F1 Score"],
+                                barmode="group",
+                                title="Classification Model Performance"
+                            )
+
+                        else:
+
+                            fig = px.bar(
+                                comparison,
+                                x="Model",
+                                y=["MAE", "RMSE", "R² Score"],
+                                barmode="group",
+                                title="Regression Model Performance"
+                            )
+
+                        st.plotly_chart(
+                            fig,
+                            use_container_width=True
+                        )
+
+                        model_buffer = BytesIO()
+
+                        joblib.dump(
+                            best_model,
+                            model_buffer
+                        )
+
+                        st.download_button(
+                            "⬇️ Download Best Trained Model",
+                            data=model_buffer.getvalue(),
+                            file_name="PredictAI_Best_Model.joblib",
+                            mime="application/octet-stream"
+                        )
+
+                    except Exception as e:
+
+                        st.error(f"Training error: {e}")
 
 
-# ---------------- AI PREDICTIONS ----------------
+# =====================================================
+# PREDICTIONS
+# =====================================================
 
-elif page == "AI Predictions":
+elif page == "Predictions":
 
-    st.subheader("AI Machine Failure Predictions")
+    st.subheader("Make New Predictions")
 
-    results = st.session_state.results
+    model = st.session_state.trained_model
 
-    if results is None:
+    if model is None:
 
-        st.warning("Upload a dataset and run predictions first.")
+        st.warning(
+            "Please train an AI model before making predictions."
+        )
 
     else:
 
         st.success(
-            f"Successfully analyzed {len(results)} machine records."
+            f"Active model: {st.session_state.model_name}"
         )
 
-        failure_results = results[
-            results["Predicted Condition"] == "Failure Risk"
-        ]
-
-        st.metric(
-            "Machines with Failure Risk",
-            len(failure_results)
+        st.write(
+            f"Problem type: {st.session_state.problem_type}"
         )
 
-        st.dataframe(
-            results,
-            use_container_width=True
+        new_file = st.file_uploader(
+            "Upload New Data for Prediction",
+            type=["csv", "xlsx"],
+            key="prediction_upload"
         )
 
-        if not failure_results.empty:
+        if new_file is not None:
 
-            st.subheader("⚠️ Failure Risk Alerts")
+            try:
+
+                new_df = read_dataset(new_file)
+
+                feature_columns = st.session_state.feature_columns
+
+                missing = [
+                    col for col in feature_columns
+                    if col not in new_df.columns
+                ]
+
+                if missing:
+
+                    st.error(
+                        "Missing required input columns: "
+                        + ", ".join(missing)
+                    )
+
+                else:
+
+                    X_new = new_df[feature_columns].copy()
+
+                    if st.button(
+                        "🔮 Generate Predictions",
+                        type="primary"
+                    ):
+
+                        predictions = model.predict(X_new)
+
+                        output = new_df.copy()
+                        output["AI Prediction"] = predictions
+
+                        if (
+                            st.session_state.problem_type == "Classification"
+                            and hasattr(model, "predict_proba")
+                        ):
+
+                            probabilities = model.predict_proba(X_new)
+
+                            output["Prediction Confidence (%)"] = (
+                                probabilities.max(axis=1) * 100
+                            ).round(2)
+
+                        st.session_state.prediction_results = output
+
+                        st.success("Predictions generated successfully!")
+
+            except Exception as e:
+
+                st.error(f"Prediction error: {e}")
+
+        if st.session_state.prediction_results is not None:
+
+            results = st.session_state.prediction_results
+
+            st.subheader("Prediction Results")
 
             st.dataframe(
-                failure_results,
+                results,
                 use_container_width=True
             )
 
-        else:
-
-            st.success("No machine failure risks predicted.")
-
-
-# ---------------- ANALYTICS ----------------
-
-elif page == "Analytics":
-
-    st.subheader("Machine Data Analytics")
-
-    results = st.session_state.results
-
-    if results is None:
-
-        st.info("Upload a dataset and run predictions first.")
-
-    else:
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-
-            fig = px.histogram(
-                results,
-                x="Rotational speed [rpm]",
-                title="Rotational Speed Distribution",
-                nbins=30
+            st.download_button(
+                "Download Predictions CSV",
+                results.to_csv(index=False).encode("utf-8"),
+                file_name="PredictAI_Predictions.csv",
+                mime="text/csv"
             )
 
-            st.plotly_chart(fig, use_container_width=True)
 
-        with col2:
-
-            fig = px.histogram(
-                results,
-                x="Torque [Nm]",
-                title="Torque Distribution",
-                nbins=30
-            )
-
-            st.plotly_chart(fig, use_container_width=True)
-
-        fig = px.scatter(
-            results,
-            x="Rotational speed [rpm]",
-            y="Torque [Nm]",
-            color="Predicted Condition",
-            title="Rotational Speed vs Torque"
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-
-        fig = px.histogram(
-            results,
-            x="Failure Probability (%)",
-            color="Predicted Condition",
-            title="Failure Probability Analysis",
-            nbins=20
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-
-
-# ---------------- REPORTS ----------------
+# =====================================================
+# REPORTS
+# =====================================================
 
 elif page == "Reports":
 
-    st.subheader("Generate and Download Reports")
+    st.subheader("Model Reports")
 
-    results = st.session_state.results
+    if st.session_state.comparison is None:
 
-    if results is None:
-
-        st.info("Run AI predictions before generating reports.")
+        st.info("Train an AI model first.")
 
     else:
 
-        st.success("Your reports are ready to download.")
+        comparison = st.session_state.comparison
 
-        # CSV REPORT
+        st.subheader("Model Performance Report")
 
-        csv_data = results.to_csv(index=False).encode("utf-8")
-
-        st.download_button(
-            "📄 Download CSV Report",
-            data=csv_data,
-            file_name="PredictAI_Report.csv",
-            mime="text/csv"
+        st.dataframe(
+            comparison,
+            use_container_width=True
         )
-
-        # EXCEL REPORT
 
         excel_buffer = BytesIO()
 
@@ -452,152 +735,71 @@ elif page == "Reports":
             engine="openpyxl"
         ) as writer:
 
-            results.to_excel(
+            comparison.to_excel(
                 writer,
-                sheet_name="Predictions",
+                sheet_name="Model Comparison",
                 index=False
             )
 
-            summary = pd.DataFrame({
-                "Metric": [
-                    "Total Machines",
-                    "Predicted Failures",
-                    "Normal Machines",
-                    "Failure Rate (%)"
-                ],
-                "Value": [
-                    len(results),
-                    (results["Predicted Condition"] == "Failure Risk").sum(),
-                    (results["Predicted Condition"] == "Normal").sum(),
-                    round(
-                        (results["Predicted Condition"] == "Failure Risk").mean() * 100,
-                        2
-                    )
-                ]
-            })
+            if st.session_state.prediction_results is not None:
 
-            summary.to_excel(
-                writer,
-                sheet_name="Summary",
-                index=False
-            )
+                st.session_state.prediction_results.to_excel(
+                    writer,
+                    sheet_name="Predictions",
+                    index=False
+                )
 
         st.download_button(
-            "📊 Download Excel Report",
-            data=excel_buffer.getvalue(),
+            "Download Excel Report",
+            excel_buffer.getvalue(),
             file_name="PredictAI_Report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-        # PDF REPORT
-
-        pdf_buffer = BytesIO()
-
-        doc = SimpleDocTemplate(
-            pdf_buffer,
-            pagesize=A4
-        )
-
-        styles = getSampleStyleSheet()
-
-        elements = []
-
-        elements.append(
-            Paragraph("PredictAI - Machine Analysis Report", styles["Title"])
-        )
-
-        elements.append(Spacer(1, 20))
-
-        total = len(results)
-
-        failures = (
-            results["Predicted Condition"] == "Failure Risk"
-        ).sum()
-
-        normal = total - failures
-
-        summary_data = [
-            ["Metric", "Value"],
-            ["Total Machines", str(total)],
-            ["Predicted Failures", str(failures)],
-            ["Normal Machines", str(normal)],
-            [
-                "Failure Rate",
-                f"{(failures / total * 100 if total else 0):.2f}%"
-            ]
-        ]
-
-        elements.append(Table(summary_data))
-        elements.append(Spacer(1, 20))
-
-        elements.append(
-            Paragraph("Recent Prediction Results", styles["Heading2"])
-        )
-
-        sample = results.head(15)
-
-        table_data = [
-            ["Machine", "Condition", "Failure Probability"]
-        ]
-
-        for i, row in sample.iterrows():
-
-            table_data.append([
-                str(i + 1),
-                str(row["Predicted Condition"]),
-                f'{row["Failure Probability (%)"]:.2f}%'
-            ])
-
-        elements.append(Table(table_data))
-
-        doc.build(elements)
-
         st.download_button(
-            "📕 Download PDF Report",
-            data=pdf_buffer.getvalue(),
-            file_name="PredictAI_Report.pdf",
-            mime="application/pdf"
+            "Download CSV Report",
+            comparison.to_csv(index=False).encode("utf-8"),
+            file_name="PredictAI_Comparison.csv",
+            mime="text/csv"
         )
 
 
-# ---------------- ABOUT ----------------
+# =====================================================
+# ABOUT
+# =====================================================
 
 elif page == "About":
 
     st.subheader("About PredictAI")
 
     st.write("""
-    PredictAI is an AI-based predictive maintenance
-    application designed to identify possible machine
-    failures using operational sensor data.
+    PredictAI is a general-purpose machine learning platform.
 
-    The application uses a Random Forest classification
-    model trained using the AI4I 2020 Predictive
-    Maintenance Dataset.
+    Users can upload datasets, select target columns,
+    train classification and regression models,
+    compare algorithm performance and generate
+    predictions using trained models.
     """)
 
-    st.divider()
+    st.subheader("Supported Algorithms")
 
-    st.subheader("Model Information")
+    st.write("""
+    Classification:
+    - Logistic Regression
+    - Decision Tree
+    - Random Forest
+    - Extra Trees
 
-    c1, c2 = st.columns(2)
+    Regression:
+    - Linear Regression
+    - Decision Tree Regressor
+    - Random Forest Regressor
+    - Extra Trees Regressor
+    """)
 
-    c1.metric(
-        "Model Accuracy",
-        f'{model_info["accuracy"]:.2f}%'
+    st.info(
+        "PredictAI is an educational machine learning platform. "
+        "Predictions should be validated before real-world use."
     )
 
-    c2.metric(
-        "Number of Estimators",
-        model_info["n_estimators"]
-    )
-
-    st.write("**Model:**", model_info["model_name"])
-    st.write("**Dataset:**", model_info["dataset"])
-    st.write("**Precision:**", f'{model_info["precision"]:.2f}%')
-    st.write("**Recall:**", f'{model_info["recall"]:.2f}%')
-    st.write("**F1 Score:**", f'{model_info["f1_score"]:.2f}%')
-
-    st.divider()
-
-    st.caption("PredictAI | AI-Based Predictive Maintenance System")
+    st.caption("PredictAI | Universal AI Training Platform")
