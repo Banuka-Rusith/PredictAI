@@ -864,6 +864,146 @@ elif page == "Dataset Explorer":
                         "values පැතිරී ඇති ආකාරය මෙම chart එකෙන් පෙන්වයි."
                     )
 
+                # -------------------------------------------------
+                # AUTOMATIC DATA VISUALIZATION
+                # -------------------------------------------------
+                st.divider()
+                st.markdown("## 7. Data Visualization | දත්ත දෘශ්‍යකරණය")
+                st.caption(
+                    "Explore distributions, relationships, outliers and trends. "
+                    "/ දත්තවල ව්‍යාප්තිය, සම්බන්ධතා, outliers සහ trends පරීක්ෂා කරන්න."
+                )
+
+                numeric_columns = explorer_df.select_dtypes(
+                    include=np.number
+                ).columns.tolist()
+
+                if numeric_columns:
+                    st.markdown("### A. Histogram | දත්ත ව්‍යාප්තිය")
+                    histogram_column = st.selectbox(
+                        "Select a numerical variable / සංඛ්‍යාත්මක variable එකක් තෝරන්න",
+                        numeric_columns,
+                        key="explorer_hist_column"
+                    )
+                    hist_fig = px.histogram(
+                        explorer_df,
+                        x=histogram_column,
+                        nbins=30,
+                        title=f"Distribution of {histogram_column}",
+                        labels={histogram_column: histogram_column, "count": "Frequency"}
+                    )
+                    st.plotly_chart(hist_fig, use_container_width=True)
+                    st.caption(
+                        "Histogram shows how frequently values occur. "
+                        "/ Histogram එකෙන් values කොපමණ වාරයක් ඇතිද පෙන්වයි."
+                    )
+
+                    st.markdown("### B. Box Plot | Outlier පරීක්ෂාව")
+                    box_column = st.selectbox(
+                        "Select a variable for box plot / Box plot සඳහා variable එකක් තෝරන්න",
+                        numeric_columns,
+                        key="explorer_box_column"
+                    )
+                    box_fig = px.box(
+                        explorer_df,
+                        y=box_column,
+                        points="outliers",
+                        title=f"Box Plot of {box_column}"
+                    )
+                    st.plotly_chart(box_fig, use_container_width=True)
+                    st.caption(
+                        "Points outside the whiskers may be potential outliers; "
+                        "investigate them before removing anything. "
+                        "/ Whiskers වලින් පිටත points potential outliers විය හැක."
+                    )
+
+                    st.markdown("### C. Scatter Plot | Variables අතර සම්බන්ධතාව")
+                    if len(numeric_columns) >= 2:
+                        scatter_col1, scatter_col2 = st.columns(2)
+                        with scatter_col1:
+                            scatter_x = st.selectbox(
+                                "X-axis variable",
+                                numeric_columns,
+                                index=0,
+                                key="explorer_scatter_x"
+                            )
+                        with scatter_col2:
+                            default_y = 1 if len(numeric_columns) > 1 else 0
+                            scatter_y = st.selectbox(
+                                "Y-axis variable",
+                                numeric_columns,
+                                index=default_y,
+                                key="explorer_scatter_y"
+                            )
+
+                        scatter_fig = px.scatter(
+                            explorer_df,
+                            x=scatter_x,
+                            y=scatter_y,
+                            title=f"{scatter_x} vs {scatter_y}",
+                            trendline=None
+                        )
+                        st.plotly_chart(scatter_fig, use_container_width=True)
+                        st.caption(
+                            "A scatter plot helps identify possible relationships "
+                            "between two numerical variables. "
+                            "/ Variables දෙකක් අතර සම්බන්ධතාවයක් තිබේද බලන්න."
+                        )
+                    else:
+                        st.info(
+                            "At least two numerical columns are needed for a scatter plot. "
+                            "/ Scatter plot එකක් සඳහා numerical columns දෙකක් අවශ්‍යයි."
+                        )
+
+                    st.markdown("### D. Line Plot | Measurement Trend")
+                    line_column = st.selectbox(
+                        "Select a variable for line plot / Line plot සඳහා variable එකක් තෝරන්න",
+                        numeric_columns,
+                        key="explorer_line_column"
+                    )
+                    line_fig = px.line(
+                        explorer_df.reset_index(),
+                        x="index",
+                        y=line_column,
+                        title=f"Trend of {line_column}",
+                        labels={"index": "Record Number", line_column: line_column}
+                    )
+                    st.plotly_chart(line_fig, use_container_width=True)
+                    st.caption(
+                        "This plot displays the values in the current row order. "
+                        "If the dataset has timestamps, sort by time before interpreting trends. "
+                        "/ මෙය දැනට ඇති row order එක අනුව values පෙන්වයි. "
+                        "Timestamp තිබේ නම් time අනුව sort කර බලන්න."
+                    )
+
+                    st.markdown("### E. Correlation Heatmap | Correlation පරීක්ෂාව")
+                    if len(numeric_columns) >= 2:
+                        correlation = explorer_df[numeric_columns].corr()
+                        heatmap_fig = px.imshow(
+                            correlation,
+                            text_auto=".2f",
+                            aspect="auto",
+                            color_continuous_scale="RdBu_r",
+                            zmin=-1,
+                            zmax=1,
+                            title="Numerical Feature Correlation Heatmap"
+                        )
+                        st.plotly_chart(heatmap_fig, use_container_width=True)
+                        st.caption(
+                            "Correlation ranges from -1 to +1. Correlation does not prove causation. "
+                            "/ Correlation එකෙන් සම්බන්ධතාව පෙන්වන නමුත් හේතු-ඵල සම්බන්ධය තහවුරු නොවේ."
+                        )
+                    else:
+                        st.info(
+                            "At least two numerical columns are needed for a correlation heatmap. "
+                            "/ Heatmap එකක් සඳහා numerical columns දෙකක් අවශ්‍යයි."
+                        )
+                else:
+                    st.info(
+                        "No numerical columns are available for these plots. "
+                        "/ මෙම plots සඳහා numerical columns හමු නොවීය."
+                    )
+
                 st.download_button(
                     "⬇️ Download Column Analysis (CSV)",
                     data=column_info.to_csv(index=False).encode("utf-8"),
