@@ -413,6 +413,7 @@ page = st.sidebar.radio(
         "Dataset Explorer",
         "AI Model Training",
         "Model Comparison",
+        "Automatic Dual Analysis",
         "Predictions",
         "Reports",
         "About"
@@ -1268,6 +1269,229 @@ elif page == "Dataset Explorer":
 
         except Exception as e:
             st.error(f"Dataset Analysis Error: {e}")
+
+
+
+# =====================================================
+# AUTOMATIC DUAL ANALYSIS
+# =====================================================
+
+elif page == "Automatic Dual Analysis":
+
+    st.subheader("🔁 Automatic Dual Analysis | Classification + Regression")
+    st.write(
+        "Upload one dataset and choose one numerical target. PredictAI will run "
+        "both Regression and Classification automatically using the same target."
+    )
+    st.caption(
+        "එකම numerical target එක භාවිතා කර Analysis දෙකම ස්වයංක්‍රීයව සිදු කරයි."
+    )
+
+    dual_file = st.file_uploader(
+        "Upload CSV or Excel Dataset",
+        type=["csv", "xlsx"],
+        key="dual_analysis_upload"
+    )
+
+    if dual_file is not None:
+        try:
+            dual_df = read_dataset(dual_file)
+            st.success(f"Dataset loaded: {len(dual_df):,} rows, {len(dual_df.columns)} columns")
+
+            dual_target = st.selectbox(
+                "Select numerical target column / Numerical target එක තෝරන්න",
+                dual_df.select_dtypes(include=["number"]).columns.tolist(),
+                key="dual_analysis_target"
+            )
+
+            if dual_target:
+                target_values = pd.to_numeric(
+                    dual_df[dual_target], errors="coerce"
+                )
+                usable_mask = target_values.notna()
+                dual_data = dual_df.loc[usable_mask].copy()
+                y_reg = target_values.loc[usable_mask].astype(float)
+                X_dual = dual_data.drop(columns=[dual_target])
+                X_dual = X_dual.select_dtypes(
+                    include=["number", "object", "category", "bool"]
+                )
+                constant_cols = [
+                    col for col in X_dual.columns
+                    if X_dual[col].nunique(dropna=True) <= 1
+                ]
+                X_dual = X_dual.drop(columns=constant_cols)
+
+                if len(dual_data) < 20:
+                    st.error("At least 20 valid rows are recommended for dual analysis.")
+                elif X_dual.shape[1] == 0:
+                    st.error("No usable feature columns found after removing the target.")
+                elif y_reg.nunique() < 2:
+                    st.error("The selected target must contain at least two different numeric values.")
+                else:
+                    # Classification labels are derived from the median.
+                    # This rule is shown explicitly so the generated classes are transparent.
+                    threshold = float(y_reg.median())
+                    y_class = (y_reg >= threshold).astype(int).map({
+                        0: "Below Median",
+                        1: "Median or Above"
+                    })
+
+                    st.markdown("### Automatic classification rule")
+                    st.info(
+                        f"Values below {threshold:.3f} → **Below Median**; "
+                        f"values equal to or above {threshold:.3f} → **Median or Above**. "
+                        "This is a generated grouping rule, not an original label in your dataset."
+                    )
+
+                    st.markdown("### Target distribution")
+                    distribution = pd.DataFrame({
+                        "Target": y_class.value_counts().index,
+                        "Records": y_class.value_counts().values
+                    })
+                    st.plotly_chart(
+                        px.bar(
+                            distribution, x="Target", y="Records",
+                            title="Automatically Generated Classification Classes"
+                        ),
+                        use_container_width=True
+                    )
+
+                    run_dual = st.button(
+                        "🚀 Run Classification + Regression",
+                        type="primary",
+                        use_container_width=True,
+                        key="run_dual_analysis"
+                    )
+
+                    if run_dual:
+                        try:
+                            from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+                            from sklearn.metrics import (
+                                accuracy_score, precision_score, recall_score,
+                                f1_score, confusion_matrix, mean_absolute_error,
+                                mean_squared_error, r2_score
+                            )
+
+                            stratify_values = (
+                                y_class if y_class.value_counts().min() >= 2 else None
+                            )
+                            X_train_d, X_test_d, yc_train, yc_test, yr_train, yr_test = train_test_split(
+                                X_dual, y_class, y_reg,
+                                test_size=0.2,
+                                random_state=42,
+                                stratify=stratify_values
+                            )
+
+                            classifier = Pipeline([
+                                ("preprocessor", build_preprocessor(X_train_d)),
+                                ("model", RandomForestClassifier(
+                                    n_estimators=80, random_state=42,
+                                    n_jobs=1, class_weight="balanced"
+                                ))
+                            ])
+                            regressor = Pipeline([
+                                ("preprocessor", build_preprocessor(X_train_d)),
+                                ("model", RandomForestRegressor(
+                                    n_estimators=80, random_state=42, n_jobs=1
+                                ))
+                            ])
+
+                            with st.spinner("Training both models... / Models දෙකම train කරමින් පවතී..."):
+                                classifier.fit(X_train_d, yc_train)
+                                class_pred = classifier.predict(X_test_d)
+                                regressor.fit(X_train_d, yr_train)
+                                reg_pred = regressor.predict(X_test_d)
+
+                            st.success("Both analyses completed successfully!")
+
+                            st.markdown("## 1. Classification Results")
+                            ca, cp, cr, cf = st.columns(4)
+                            ca.metric("Accuracy", f"{accuracy_score(yc_test, class_pred):.3f}")
+                            cp.metric("Precision", f"{precision_score(yc_test, class_pred, pos_label='Median or Above', zero_division=0):.3f}")
+                            cr.metric("Recall", f"{recall_score(yc_test, class_pred, pos_label='Median or Above', zero_division=0):.3f}")
+                            cf.metric("F1-score", f"{f1_score(yc_test, class_pred, pos_label='Median or Above', zero_division=0):.3f}")
+
+                            cm = confusion_matrix(
+                                yc_test, class_pred,
+                                labels=["Below Median", "Median or Above"]
+                            )
+                            st.plotly_chart(
+                                px.imshow(
+                                    cm, text_auto=True,
+                                    x=["Predicted Below", "Predicted Above"],
+                                    y=["Actual Below", "Actual Above"],
+                                    labels={"x": "Predicted", "y": "Actual", "color": "Records"},
+                                    title="Classification Confusion Matrix"
+                                ),
+                                use_container_width=True
+                            )
+
+                            st.markdown("## 2. Regression Results")
+                            rmse = float(np.sqrt(mean_squared_error(yr_test, reg_pred)))
+                            rma, rmr, rrr = st.columns(3)
+                            rma.metric("MAE", f"{mean_absolute_error(yr_test, reg_pred):.3f}")
+                            rmr.metric("RMSE", f"{rmse:.3f}")
+                            rrr.metric("R² Score", f"{r2_score(yr_test, reg_pred):.3f}")
+
+                            regression_plot = pd.DataFrame({
+                                "Actual": yr_test.to_numpy(),
+                                "Predicted": reg_pred
+                            })
+                            st.plotly_chart(
+                                px.scatter(
+                                    regression_plot, x="Actual", y="Predicted",
+                                    title="Regression: Actual vs Predicted"
+                                ).add_shape(
+                                    type="line",
+                                    x0=float(regression_plot["Actual"].min()),
+                                    y0=float(regression_plot["Actual"].min()),
+                                    x1=float(regression_plot["Actual"].max()),
+                                    y1=float(regression_plot["Actual"].max())
+                                ),
+                                use_container_width=True
+                            )
+
+                            residuals = yr_test.to_numpy() - reg_pred
+                            residual_plot = pd.DataFrame({
+                                "Predicted": reg_pred,
+                                "Residual": residuals
+                            })
+                            st.plotly_chart(
+                                px.scatter(
+                                    residual_plot, x="Predicted", y="Residual",
+                                    title="Regression: Residual vs Predicted"
+                                ).add_hline(y=0),
+                                use_container_width=True
+                            )
+
+                            st.markdown("### Prediction Preview")
+                            preview = pd.DataFrame({
+                                "Actual Numeric Target": yr_test.to_numpy(),
+                                "Regression Prediction": reg_pred,
+                                "Actual Generated Class": yc_test.to_numpy(),
+                                "Classification Prediction": class_pred
+                            }).head(100)
+                            st.dataframe(preview, use_container_width=True)
+
+                            st.download_button(
+                                "Download Dual Analysis Results CSV",
+                                preview.to_csv(index=False).encode("utf-8"),
+                                file_name="PredictAI_Dual_Analysis_Results.csv",
+                                mime="text/csv"
+                            )
+
+                            st.warning(
+                                "Interpretation note: Classification labels are generated from the "
+                                "selected target's median. This allows both task types to run, but "
+                                "the classification result answers a different question from exact "
+                                "numeric regression. Review the threshold before using the results."
+                            )
+
+                        except Exception as dual_error:
+                            st.error(f"Dual Analysis Error: {dual_error}")
+
+        except Exception as upload_error:
+            st.error(f"Dataset Error: {upload_error}")
 
 
 # =====================================================
